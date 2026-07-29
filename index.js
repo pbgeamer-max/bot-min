@@ -22,12 +22,10 @@ let rawHost = process.env.HOST || process.env.MC_HOST || 'localhost';
 let rawPort = process.env.MC_PORT || process.env.PORT_MC || '25565';
 const username = process.env.USERNAME || process.env.BOT_USERNAME || 'AFK_Bot';
 const rawVersion = process.env.VERSION;
-// التعرف التلقائي إذا لم يتم التحديد أو في حال كانت القيمة auto / false
 const version = (rawVersion && rawVersion !== 'false' && rawVersion !== 'auto') ? rawVersion : false;
-const auth = process.env.AUTH || 'offline';  // offline لسيرفرات Aternos المكركة
+const auth = process.env.AUTH || 'offline';
 const password = process.env.PASSWORD || process.env.BOT_PASSWORD || null;
 
-// معالجة حالة إدخال العنوان المدمج بالبورت (مثال: server.aternos.me:12345)
 if (rawHost.includes(':')) {
   const parts = rawHost.split(':');
   rawHost = parts[0];
@@ -50,18 +48,21 @@ let bot = null;
 let afkInterval = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
+let hasLoggedIn = false;
 
 function createBot() {
   if (isReconnecting) return;
+  hasLoggedIn = false;
 
-  console.log(`[BOT] Connecting to ${config.host}:${config.port} as '${config.username}' (Version: ${config.version || 'Auto-Detect'})...`);
+  console.log(`[BOT] Connecting to ${config.host}:${config.port} as '${config.username}'...`);
 
   try {
     const botOptions = {
       host: config.host,
       port: config.port,
       username: config.username,
-      auth: config.auth
+      auth: config.auth,
+      checkTimeoutInterval: 60000
     };
 
     if (config.version) {
@@ -84,7 +85,7 @@ function parseReason(reason) {
     if (reason.text) return reason.text;
     if (reason.value && reason.value.text && reason.value.text.value) return reason.value.text.value;
     if (reason.extra && Array.isArray(reason.extra.value)) {
-      return JSON.stringify(reason.extra.value);
+      return reason.extra.value.map(item => (typeof item === 'string' ? item : item.text || JSON.stringify(item))).join('');
     }
     return JSON.stringify(reason);
   } catch (e) {
@@ -93,67 +94,53 @@ function parseReason(reason) {
 }
 
 function setupBotEvents() {
-  // عند دخول البوت إلى السيرفر بنجاح
   bot.once('spawn', () => {
     console.log(`[BOT] Connected successfully to server as '${bot.username}'!`);
-    startAntiAFK();
-
-    // إذا كان هناك كلمة سر محددة في متغيرات البيئة، إرسال تسجيل الدخول تلقائياً
-    if (config.password) {
-      setTimeout(() => {
-        if (bot) {
-          bot.chat(`/register ${config.password} ${config.password}`);
-          bot.chat(`/login ${config.password}`);
-          console.log('[AUTH] Sent /login and /register commands.');
-        }
-      }, 2000);
-    }
+    
+    // تفعيل الـ Anti-AFK الآمن بعد 5 ثوانٍ من الدخول لضمان استقرار حركة اللاعب
+    setTimeout(() => {
+      if (bot && bot.entity) {
+        startAntiAFK();
+      }
+    }, 5000);
   });
 
-  // تسجيل الرسائل التي تصل في الشات
-  bot.on('chat', (sender, message) => {
-    if (sender === bot.username) return;
-    console.log(`[CHAT] <${sender}> ${message}`);
-  });
-
-  // تسجيل جميع رسائل النظام وشاشة السيرفر
+  // تسجيل الرسائل وتلبية طلبات AuthMe
   bot.on('message', (jsonMsg) => {
     try {
       const msgStr = jsonMsg.toString();
-      if (msgStr.trim()) {
-        console.log(`[SERVER MSG] ${msgStr}`);
-        
-        // التحقق التلقائي من طلبات تسجيل الدخول في السيرفرات التي تستخدم إضافات الحماية
-        if (config.password) {
-          const lower = msgStr.toLowerCase();
-          if (lower.includes('/register')) {
-            bot.chat(`/register ${config.password} ${config.password}`);
-            console.log('[AUTH] Responded to /register prompt');
-          } else if (lower.includes('/login')) {
-            bot.chat(`/login ${config.password}`);
-            console.log('[AUTH] Responded to /login prompt');
-          }
+      if (!msgStr.trim()) return;
+
+      console.log(`[SERVER MSG] ${msgStr}`);
+
+      if (config.password && !hasLoggedIn) {
+        const lower = msgStr.toLowerCase();
+        if (lower.includes('/register')) {
+          bot.chat(`/register ${config.password} ${config.password}`);
+          console.log('[AUTH] Sent /register command.');
+          hasLoggedIn = true;
+        } else if (lower.includes('/login') && !lower.includes('already logged in')) {
+          bot.chat(`/login ${config.password}`);
+          console.log('[AUTH] Sent /login command.');
+          hasLoggedIn = true;
         }
       }
     } catch (e) {}
   });
 
-  // معالجة حالة الطرد (Kicked)
-  bot.on('kicked', (reason, loggedIn) => {
+  bot.on('kicked', (reason) => {
     const formattedReason = parseReason(reason);
-    console.warn(`[BOT] Kicked from server. Detailed Reason:`, formattedReason);
+    console.warn(`[BOT] Kicked from server. Reason: ${formattedReason}`);
     cleanUp();
     scheduleReconnect();
   });
 
-  // معالجة الأخطاء (Error)
   bot.on('error', (err) => {
     console.error(`[BOT] Network/Protocol Error:`, err.message || err);
     cleanUp();
     scheduleReconnect();
   });
 
-  // معالجة قطع الاتصال (End)
   bot.on('end', (reason) => {
     console.warn(`[BOT] Connection closed (${reason || 'Disconnected'}).`);
     cleanUp();
@@ -162,49 +149,41 @@ function setupBotEvents() {
 }
 
 // ==========================================
-// 4. نظام Anti-AFK الحركي التفاعلي
+// 4. نظام Anti-AFK آمن بدون حزم حركية مرفوضة (Safe Anti-AFK)
 // ==========================================
 function startAntiAFK() {
   stopAntiAFK();
-  console.log('[ANTI-AFK] System activated. Executing random actions every 30 seconds.');
+  console.log('[ANTI-AFK] Safe Anti-AFK activated (Swing arm & gentle head look).');
 
   afkInterval = setInterval(() => {
     if (!bot || !bot.entity) return;
 
-    const actionIndex = Math.floor(Math.random() * 4);
+    try {
+      const actionIndex = Math.floor(Math.random() * 3);
 
-    switch (actionIndex) {
-      case 0:
-        // القفز
-        bot.setControlState('jump', true);
-        setTimeout(() => {
-          if (bot) bot.setControlState('jump', false);
-        }, 500);
-        break;
-
-      case 1:
-        // تحريك اليد (Swing Arm)
-        try {
+      switch (actionIndex) {
+        case 0:
+          // تحريك اليد (Swing Arm) - حزمة آمنة 100% ولا تسبب طرد
           bot.swingArm('right');
-        } catch (e) {}
-        break;
+          break;
 
-      case 2:
-        // التدوير والالتفاف في الاتجاهات
-        const yaw = (Math.random() - 0.5) * Math.PI * 2;
-        const pitch = (Math.random() - 0.5) * (Math.PI / 2);
-        bot.look(yaw, pitch, true).catch(() => {});
-        break;
+        case 1:
+          // تدوير الرأس بزاوية بسيطة بدون إرسال حزم حركة جسم مفاجئة
+          const currentYaw = bot.entity.yaw || 0;
+          const currentPitch = bot.entity.pitch || 0;
+          const newYaw = currentYaw + 0.1;
+          bot.look(newYaw, currentPitch, false).catch(() => {});
+          break;
 
-      case 3:
-        // الانحناء (Sneak)
-        bot.setControlState('sneak', true);
-        setTimeout(() => {
-          if (bot) bot.setControlState('sneak', false);
-        }, 1000);
-        break;
+        case 2:
+          // تحريك اليد الأخرى أو إرجاع الرأس
+          bot.swingArm('left');
+          break;
+      }
+    } catch (err) {
+      console.error('[ANTI-AFK] Error:', err.message);
     }
-  }, 30000); // تنفيذه كل 30 ثانية
+  }, 30000);
 }
 
 function stopAntiAFK() {
@@ -216,6 +195,7 @@ function stopAntiAFK() {
 
 function cleanUp() {
   stopAntiAFK();
+  hasLoggedIn = false;
   if (bot) {
     bot.removeAllListeners();
     bot = null;
@@ -235,11 +215,11 @@ function scheduleReconnect() {
     reconnectTimeout = null;
     isReconnecting = false;
     createBot();
-  }, 15000); // 15 ثانية
+  }, 15000);
 }
 
 // ==========================================
-// 6. حماية السكريبت من الإغلاق في حال الأخطاء غير المتوقعة
+// 6. حماية السكريبت من الإغلاق
 // ==========================================
 process.on('uncaughtException', (err) => {
   console.error('[PROCESS] Uncaught Exception caught:', err.message || err);

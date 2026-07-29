@@ -25,6 +25,7 @@ const rawVersion = process.env.VERSION;
 // التعرف التلقائي إذا لم يتم التحديد أو في حال كانت القيمة auto / false
 const version = (rawVersion && rawVersion !== 'false' && rawVersion !== 'auto') ? rawVersion : false;
 const auth = process.env.AUTH || 'offline';  // offline لسيرفرات Aternos المكركة
+const password = process.env.PASSWORD || process.env.BOT_PASSWORD || null;
 
 // معالجة حالة إدخال العنوان المدمج بالبورت (مثال: server.aternos.me:12345)
 if (rawHost.includes(':')) {
@@ -38,7 +39,8 @@ const config = {
   port: parseInt(rawPort, 10),
   username: username.trim(),
   version: version,
-  auth: auth
+  auth: auth,
+  password: password
 };
 
 // ==========================================
@@ -74,11 +76,38 @@ function createBot() {
   }
 }
 
+function parseReason(reason) {
+  if (!reason) return 'No reason provided';
+  if (typeof reason === 'string') return reason;
+  
+  try {
+    if (reason.text) return reason.text;
+    if (reason.value && reason.value.text && reason.value.text.value) return reason.value.text.value;
+    if (reason.extra && Array.isArray(reason.extra.value)) {
+      return JSON.stringify(reason.extra.value);
+    }
+    return JSON.stringify(reason);
+  } catch (e) {
+    return String(reason);
+  }
+}
+
 function setupBotEvents() {
   // عند دخول البوت إلى السيرفر بنجاح
   bot.once('spawn', () => {
     console.log(`[BOT] Connected successfully to server as '${bot.username}'!`);
     startAntiAFK();
+
+    // إذا كان هناك كلمة سر محددة في متغيرات البيئة، إرسال تسجيل الدخول تلقائياً
+    if (config.password) {
+      setTimeout(() => {
+        if (bot) {
+          bot.chat(`/register ${config.password} ${config.password}`);
+          bot.chat(`/login ${config.password}`);
+          console.log('[AUTH] Sent /login and /register commands.');
+        }
+      }, 2000);
+    }
   });
 
   // تسجيل الرسائل التي تصل في الشات
@@ -87,9 +116,32 @@ function setupBotEvents() {
     console.log(`[CHAT] <${sender}> ${message}`);
   });
 
+  // تسجيل جميع رسائل النظام وشاشة السيرفر
+  bot.on('message', (jsonMsg) => {
+    try {
+      const msgStr = jsonMsg.toString();
+      if (msgStr.trim()) {
+        console.log(`[SERVER MSG] ${msgStr}`);
+        
+        // التحقق التلقائي من طلبات تسجيل الدخول في السيرفرات التي تستخدم إضافات الحماية
+        if (config.password) {
+          const lower = msgStr.toLowerCase();
+          if (lower.includes('/register')) {
+            bot.chat(`/register ${config.password} ${config.password}`);
+            console.log('[AUTH] Responded to /register prompt');
+          } else if (lower.includes('/login')) {
+            bot.chat(`/login ${config.password}`);
+            console.log('[AUTH] Responded to /login prompt');
+          }
+        }
+      }
+    } catch (e) {}
+  });
+
   // معالجة حالة الطرد (Kicked)
   bot.on('kicked', (reason, loggedIn) => {
-    console.warn(`[BOT] Kicked from server. Reason:`, reason);
+    const formattedReason = parseReason(reason);
+    console.warn(`[BOT] Kicked from server. Detailed Reason:`, formattedReason);
     cleanUp();
     scheduleReconnect();
   });

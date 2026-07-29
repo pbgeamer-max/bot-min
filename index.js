@@ -1,176 +1,196 @@
-require("dotenv").config();
-const mineflayer = require("mineflayer");
+const mineflayer = require('mineflayer');
+const http = require('http');
 
-const {
-  BOT_HOST = "localhost",
-  BOT_PORT = 25565,
-  BOT_VERSION = "1.20.1",
-  BOT_USERNAME = "AFK_Bot",
-  BOT_PASSWORD,
-  RECONNECT_DELAY = 10000,
-  AFK_MIN_INTERVAL = 30000,
-  AFK_MAX_INTERVAL = 60000,
-} = process.env;
+// ==========================================
+// 1. خادم HTTP وهمي لفحص الصحة (Health Checks) على منصة Railway
+// ==========================================
+const WEB_PORT = process.env.WEB_PORT || process.env.PORT || 3000;
 
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Minecraft AFK Bot is running smoothly!\n Status: OK');
+});
+
+server.listen(WEB_PORT, () => {
+  console.log(`[HTTP] Health check server listening on port ${WEB_PORT}`);
+});
+
+// ==========================================
+// 2. إعداد وقراءة متغيرات البيئة (Environment Variables)
+// ==========================================
+let rawHost = process.env.HOST || process.env.MC_HOST || 'localhost';
+let rawPort = process.env.MC_PORT || process.env.PORT_MC || '25565';
+const username = process.env.USERNAME || process.env.BOT_USERNAME || 'AFK_Bot';
+const version = process.env.VERSION || false; // false يسمح بالتعرف التلقائي على الإصدار
+const auth = process.env.AUTH || 'offline';  // offline لسيرفرات Aternos المكركة (Cracked)
+
+// معالجة حالة إدخال العنوان المدمج بالبورت (مثال: server.aternos.me:12345)
+if (rawHost.includes(':')) {
+  const parts = rawHost.split(':');
+  rawHost = parts[0];
+  rawPort = parts[1];
+}
+
+const config = {
+  host: rawHost,
+  port: parseInt(rawPort, 10),
+  username: username,
+  version: version,
+  auth: auth
+};
+
+// ==========================================
+// 3. إدارة البوت والاتصال تلقائياً (Auto-Reconnect & Bot Life Cycle)
+// ==========================================
 let bot = null;
-let reconnectTimer = null;
-let afkTimer = null;
+let afkInterval = null;
+let reconnectTimeout = null;
 let isReconnecting = false;
 
 function createBot() {
-  const options = {
-    host: BOT_HOST,
-    port: parseInt(BOT_PORT, 10),
-    username: BOT_USERNAME,
-    version: BOT_VERSION,
-  };
+  if (isReconnecting) return;
 
-  if (BOT_PASSWORD) {
-    options.auth = "microsoft";
-    options.password = BOT_PASSWORD;
+  console.log(`[BOT] Connecting to ${config.host}:${config.port} as '${config.username}'...`);
+
+  try {
+    bot = mineflayer.createBot({
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      version: config.version,
+      auth: config.auth
+    });
+
+    setupBotEvents();
+  } catch (err) {
+    console.error('[BOT] Creation Error:', err.message || err);
+    scheduleReconnect();
   }
+}
 
-  console.log(`[${timestamp()}] Connecting to ${BOT_HOST}:${BOT_PORT} as ${BOT_USERNAME}...`);
-
-  bot = mineflayer.createBot(options);
-
-  bot.on("spawn", () => {
-    console.log(`[${timestamp()}] Bot spawned successfully.`);
-    isReconnecting = false;
-    startAfk();
+function setupBotEvents() {
+  // عند دخول البوت إلى السيرفر بنجاح
+  bot.once('spawn', () => {
+    console.log(`[BOT] Connected successfully to server as '${bot.username}'!`);
+    startAntiAFK();
   });
 
-  bot.on("chat", (username, message) => {
-    if (username === bot.username) return;
-    console.log(`<${username}> ${message}`);
+  // تسجيل الرسائل التي تصل في الشات
+  bot.on('chat', (sender, message) => {
+    if (sender === bot.username) return;
+    console.log(`[CHAT] <${sender}> ${message}`);
   });
 
-  bot.on("death", () => {
-    console.log(`[${timestamp()}] Bot died. Respawning...`);
-  });
-
-  bot.on("kicked", (reason) => {
-    console.log(`[${timestamp()}] Kicked: ${reason}`);
+  // معالجة حالة الطرد (Kicked)
+  bot.on('kicked', (reason, loggedIn) => {
+    console.warn(`[BOT] Kicked from server. Reason:`, reason);
+    cleanUp();
     scheduleReconnect();
   });
 
-  bot.on("error", (err) => {
-    console.error(`[${timestamp()}] Bot error:`, err.message);
-  });
-
-  bot.on("end", (reason) => {
-    console.log(`[${timestamp()}] Disconnected: ${reason}`);
-    stopAfk();
+  // معالجة الأخطاء (Error)
+  bot.on('error', (err) => {
+    console.error(`[BOT] Network/Protocol Error:`, err.message || err);
+    cleanUp();
     scheduleReconnect();
   });
 
-  bot.on("login", () => {
-    console.log(`[${timestamp()}] Logged in as ${bot.username}`);
-  });
-
-  bot.on("playerSpawn", () => {
-    console.log(`[${timestamp()}] Player spawned.`);
-  });
-
-  bot.on("health", () => {
-    if (bot.health <= 0) {
-      console.log(`[${timestamp()}] Health is 0, waiting for respawn...`);
-    }
+  // معالجة قطع الاتصال (End)
+  bot.on('end', (reason) => {
+    console.warn(`[BOT] Connection closed (${reason || 'Disconnected'}).`);
+    cleanUp();
+    scheduleReconnect();
   });
 }
 
-function startAfk() {
-  stopAfk();
-  const interval = randomInterval(AFK_MIN_INTERVAL, AFK_MAX_INTERVAL);
-  console.log(`[${timestamp()}] Anti-AFK started. Next action in ${Math.round(interval / 1000)}s.`);
+// ==========================================
+// 4. نظام Anti-AFK الحركي التفاعلي
+// ==========================================
+function startAntiAFK() {
+  stopAntiAFK();
+  console.log('[ANTI-AFK] System activated. Executing random actions every 30 seconds.');
 
-  afkTimer = setInterval(() => {
+  afkInterval = setInterval(() => {
     if (!bot || !bot.entity) return;
 
-    const action = Math.floor(Math.random() * 4);
+    // اختيار حركة عشوائية لضمان عدم كشف البوت كـ AFK
+    const actionIndex = Math.floor(Math.random() * 4);
 
-    switch (action) {
+    switch (actionIndex) {
       case 0:
-        bot.setControlState("jump", true);
-        setTimeout(() => bot.setControlState("jump", false), 500);
-        console.log(`[${timestamp()}] Anti-AFK: Jump.`);
+        // القفز
+        bot.setControlState('jump', true);
+        setTimeout(() => {
+          if (bot) bot.setControlState('jump', false);
+        }, 500);
         break;
 
       case 1:
-        bot.look(bot.entity.yaw + Math.PI / 2, bot.entity.pitch, false);
-        console.log(`[${timestamp()}] Anti-AFK: Look around.`);
+        // تحريك اليد (Swing Arm)
+        try {
+          bot.swingArm('right');
+        } catch (e) {}
         break;
 
       case 2:
-        bot.setControlState("forward", true);
-        setTimeout(() => {
-          bot.setControlState("forward", false);
-          bot.setControlState("back", true);
-          setTimeout(() => bot.setControlState("back", false), 400);
-        }, 400);
-        console.log(`[${timestamp()}] Anti-AFK: Walk forward/back.`);
+        // التدوير والالتفاف في الاتجاهات
+        const yaw = (Math.random() - 0.5) * Math.PI * 2;
+        const pitch = (Math.random() - 0.5) * (Math.PI / 2);
+        bot.look(yaw, pitch, true).catch(() => {});
         break;
 
       case 3:
-        bot.swingArm();
-        console.log(`[${timestamp()}] Anti-AFK: Swing arm.`);
+        // الانحناء (Sneak)
+        bot.setControlState('sneak', true);
+        setTimeout(() => {
+          if (bot) bot.setControlState('sneak', false);
+        }, 1000);
         break;
     }
-
-    const nextInterval = randomInterval(AFK_MIN_INTERVAL, AFK_MAX_INTERVAL);
-    clearInterval(afkTimer);
-    afkTimer = setTimeout(() => startAfk(), nextInterval);
-  }, interval);
+  }, 30000); // تنفيذه كل 30 ثانية
 }
 
-function stopAfk() {
-  if (afkTimer) {
-    clearTimeout(afkTimer);
-    clearInterval(afkTimer);
-    afkTimer = null;
+function stopAntiAFK() {
+  if (afkInterval) {
+    clearInterval(afkInterval);
+    afkInterval = null;
   }
 }
 
-function scheduleReconnect() {
-  if (isReconnecting) return;
-  isReconnecting = true;
-  stopAfk();
-
+function cleanUp() {
+  stopAntiAFK();
   if (bot) {
     bot.removeAllListeners();
     bot = null;
   }
+}
 
-  const delay = parseInt(RECONNECT_DELAY, 10);
-  console.log(`[${timestamp()}] Reconnecting in ${delay / 1000}s...`);
-  reconnectTimer = setTimeout(() => {
+// ==========================================
+// 5. آلية إعادة الاتصال التلقائي (Auto Reconnect)
+// ==========================================
+function scheduleReconnect() {
+  if (reconnectTimeout || isReconnecting) return;
+
+  isReconnecting = true;
+  console.log('[RECONNECT] Reconnecting in 15 seconds...');
+
+  reconnectTimeout = setTimeout(() => {
+    reconnectTimeout = null;
     isReconnecting = false;
     createBot();
-  }, delay);
+  }, 15000); // 15 ثانية
 }
 
-function randomInterval(min, max) {
-  return Math.floor(Math.random() * (parseInt(max, 10) - parseInt(min, 10) + 1)) + parseInt(min, 10);
-}
-
-function timestamp() {
-  return new Date().toISOString().replace("T", " ").slice(0, 19);
-}
-
-process.on("uncaughtException", (err) => {
-  console.error(`[${timestamp()}] Uncaught Exception:`, err);
+// ==========================================
+// 6. حماية السكريبت من الإغلاق في حال الأخطاء غير المتوقعة
+// ==========================================
+process.on('uncaughtException', (err) => {
+  console.error('[PROCESS] Uncaught Exception caught:', err.message || err);
 });
 
-process.on("unhandledRejection", (reason) => {
-  console.error(`[${timestamp()}] Unhandled Rejection:`, reason);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[PROCESS] Unhandled Rejection:', reason);
 });
 
-process.on("SIGINT", () => {
-  console.log(`\n[${timestamp()}] Shutting down...`);
-  stopAfk();
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  if (bot) bot.quit("Shutting down");
-  process.exit(0);
-});
-
+// بدء البوت
 createBot();

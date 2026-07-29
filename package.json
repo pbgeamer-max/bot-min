@@ -1,18 +1,24 @@
 {
   "name": "minecraft-afk-bot",
   "version": "1.0.0",
-  "description": "Minecraft AFK Bot using mineflayer with anti-AFK and auto-reconnect",
+  "description": "Minecraft AFK Bot for Aternos servers built with Mineflayer and designed for Railway deployment",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
+    "start": "node index.js"
   },
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "afk-bot",
+    "aternos",
+    "railway"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "mineflayer": "^4.37.1"
+    "mineflayer": "^4.20.0"
   },
   "engines": {
-    "node": ">=16.0.0"
-  },
-  "license": "MIT"
+    "node": ">=18.0.0"
+  }
 }

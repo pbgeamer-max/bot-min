@@ -21,8 +21,10 @@ server.listen(WEB_PORT, () => {
 let rawHost = process.env.HOST || process.env.MC_HOST || 'localhost';
 let rawPort = process.env.MC_PORT || process.env.PORT_MC || '25565';
 const username = process.env.USERNAME || process.env.BOT_USERNAME || 'AFK_Bot';
-const version = process.env.VERSION || false; // false يسمح بالتعرف التلقائي على الإصدار
-const auth = process.env.AUTH || 'offline';  // offline لسيرفرات Aternos المكركة (Cracked)
+const rawVersion = process.env.VERSION;
+// التعرف التلقائي إذا لم يتم التحديد أو في حال كانت القيمة auto / false
+const version = (rawVersion && rawVersion !== 'false' && rawVersion !== 'auto') ? rawVersion : false;
+const auth = process.env.AUTH || 'offline';  // offline لسيرفرات Aternos المكركة
 
 // معالجة حالة إدخال العنوان المدمج بالبورت (مثال: server.aternos.me:12345)
 if (rawHost.includes(':')) {
@@ -32,9 +34,9 @@ if (rawHost.includes(':')) {
 }
 
 const config = {
-  host: rawHost,
+  host: rawHost.trim(),
   port: parseInt(rawPort, 10),
-  username: username,
+  username: username.trim(),
   version: version,
   auth: auth
 };
@@ -50,17 +52,21 @@ let isReconnecting = false;
 function createBot() {
   if (isReconnecting) return;
 
-  console.log(`[BOT] Connecting to ${config.host}:${config.port} as '${config.username}'...`);
+  console.log(`[BOT] Connecting to ${config.host}:${config.port} as '${config.username}' (Version: ${config.version || 'Auto-Detect'})...`);
 
   try {
-    bot = mineflayer.createBot({
+    const botOptions = {
       host: config.host,
       port: config.port,
       username: config.username,
-      version: config.version,
       auth: config.auth
-    });
+    };
 
+    if (config.version) {
+      botOptions.version = config.version;
+    }
+
+    bot = mineflayer.createBot(botOptions);
     setupBotEvents();
   } catch (err) {
     console.error('[BOT] Creation Error:', err.message || err);
@@ -113,7 +119,6 @@ function startAntiAFK() {
   afkInterval = setInterval(() => {
     if (!bot || !bot.entity) return;
 
-    // اختيار حركة عشوائية لضمان عدم كشف البوت كـ AFK
     const actionIndex = Math.floor(Math.random() * 4);
 
     switch (actionIndex) {

@@ -96,13 +96,16 @@ function parseReason(reason) {
 function setupBotEvents() {
   bot.once('spawn', () => {
     console.log(`[BOT] Connected successfully to server as '${bot.username}'!`);
-    
-    // تفعيل الـ Anti-AFK الآمن بعد 5 ثوانٍ من الدخول لضمان استقرار حركة اللاعب
+
+    // إيقاف المحاكاة الفيزيائية للبوت نهائياً لمنع إرسال حزم الحركة التي تسبب الطرد
+    try {
+      bot.physicsEnabled = false;
+    } catch (e) {}
+
+    // تفعيل الـ Anti-AFK بعد 3 ثوانٍ
     setTimeout(() => {
-      if (bot && bot.entity) {
-        startAntiAFK();
-      }
-    }, 5000);
+      startAntiAFK();
+    }, 3000);
   });
 
   // تسجيل الرسائل وتلبية طلبات AuthMe
@@ -115,11 +118,11 @@ function setupBotEvents() {
 
       if (config.password && !hasLoggedIn) {
         const lower = msgStr.toLowerCase();
-        if (lower.includes('/register')) {
+        if (lower.includes('/register') && !lower.includes('already')) {
           bot.chat(`/register ${config.password} ${config.password}`);
           console.log('[AUTH] Sent /register command.');
           hasLoggedIn = true;
-        } else if (lower.includes('/login') && !lower.includes('already logged in')) {
+        } else if (lower.includes('/login') && !lower.includes('already')) {
           bot.chat(`/login ${config.password}`);
           console.log('[AUTH] Sent /login command.');
           hasLoggedIn = true;
@@ -149,37 +152,18 @@ function setupBotEvents() {
 }
 
 // ==========================================
-// 4. نظام Anti-AFK آمن بدون حزم حركية مرفوضة (Safe Anti-AFK)
+// 4. نظام Anti-AFK آمن بدون حزم حركية (No Movement Packets)
 // ==========================================
 function startAntiAFK() {
   stopAntiAFK();
-  console.log('[ANTI-AFK] Safe Anti-AFK activated (Swing arm & gentle head look).');
+  console.log('[ANTI-AFK] Safe Anti-AFK activated (Arm swinging every 30s).');
 
   afkInterval = setInterval(() => {
-    if (!bot || !bot.entity) return;
+    if (!bot) return;
 
     try {
-      const actionIndex = Math.floor(Math.random() * 3);
-
-      switch (actionIndex) {
-        case 0:
-          // تحريك اليد (Swing Arm) - حزمة آمنة 100% ولا تسبب طرد
-          bot.swingArm('right');
-          break;
-
-        case 1:
-          // تدوير الرأس بزاوية بسيطة بدون إرسال حزم حركة جسم مفاجئة
-          const currentYaw = bot.entity.yaw || 0;
-          const currentPitch = bot.entity.pitch || 0;
-          const newYaw = currentYaw + 0.1;
-          bot.look(newYaw, currentPitch, false).catch(() => {});
-          break;
-
-        case 2:
-          // تحريك اليد الأخرى أو إرجاع الرأس
-          bot.swingArm('left');
-          break;
-      }
+      // تحريك اليد فقط (Arm Swing) - لا يرسل حزم موقع أو سرعة مطلقاً
+      bot.swingArm('right');
     } catch (err) {
       console.error('[ANTI-AFK] Error:', err.message);
     }

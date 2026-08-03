@@ -16,6 +16,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
     "mineflayer": "^4.20.0"
   },
   "engines": {

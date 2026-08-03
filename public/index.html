@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft AFK Bot | لوحة التحكم</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <!-- ==================== SHIELD LOG-IN MODAL / GATE ==================== -->
+  <div id="loginGate" class="login-gate-overlay">
+    <div class="login-card glass-panel">
+      <div class="login-header">
+        <div class="brand-logo">
+          <i class="fa-solid fa-robot"></i>
+        </div>
+        <h2>Minecraft AFK Bot</h2>
+        <p>يرجى إدخال كلمة المرور للوصول إلى لوحة التحكم</p>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <div class="input-group">
+          <label for="loginPassword"><i class="fa-solid fa-lock"></i> كلمة المرور</label>
+          <input type="password" id="loginPassword" placeholder="أدخل كلمة المرور..." required autocomplete="current-password">
+        </div>
+
+        <div id="loginError" class="alert-box error hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="loginErrorMsg">كلمة المرور غير صحيحة!</span>
+        </div>
+
+        <button type="submit" id="loginBtn" class="btn btn-primary btn-block">
+          <span>دخول اللوحة</span>
+          <i class="fa-solid fa-arrow-left"></i>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MAIN DASHBOARD (HIDDEN UNTIL AUTH) ==================== -->
+  <div id="mainDashboard" class="dashboard-wrapper hidden">
+    <!-- Navbar / Top Header -->
+    <header class="top-navbar glass-panel">
+      <div class="container nav-container">
+        <div class="nav-brand">
+          <div class="nav-icon">
+            <i class="fa-solid fa-cubes"></i>
+          </div>
+          <div>
+            <h1>لوحة تحكم البوت</h1>
+            <span class="sub-title">Minecraft AFK Manager 24/7</span>
+          </div>
+        </div>
+
+        <div class="nav-actions">
+          <button id="logoutBtn" class="btn btn-outline-danger">
+            <i class="fa-solid fa-right-from-bracket"></i>
+            <span>تسجيل الخروج</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="container main-content">
+      
+      <!-- Top Grid: Status & Quick Controls -->
+      <div class="grid-top">
+        <!-- Status Card -->
+        <div class="card glass-panel status-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-heart-pulse"></i> حالة الاتصال</h3>
+            <div id="statusBadge" class="status-badge disconnected">
+              <span class="pulse-dot"></span>
+              <span id="statusText">غير متصل</span>
+            </div>
+          </div>
+
+          <div class="status-metrics">
+            <div class="metric-item">
+              <span class="metric-label">السيرفر المستهدف:</span>
+              <span id="targetServer" class="metric-value">لم يحدد بعد</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">اسم البوت:</span>
+              <span id="activeUsername" class="metric-value">--</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">مدة التشغيل الحية:</span>
+              <span id="activeUptime" class="metric-value">00:00:00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection Form Card -->
+        <div class="card glass-panel form-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-sliders"></i> إعدادات الاتصال بالسيرفر</h3>
+          </div>
+
+          <form id="botConnectForm" class="bot-form">
+            <div class="form-row">
+              <div class="input-group flex-2">
+                <label for="serverHost"><i class="fa-solid fa-network-wired"></i> عنوان السيرفر (IP / Domain) *</label>
+                <input type="text" id="serverHost" placeholder="مثال: myserver.aternos.me" required>
+              </div>
+              <div class="input-group flex-1">
+                <label for="serverPort"><i class="fa-solid fa-plug"></i> البورت (Port)</label>
+                <input type="number" id="serverPort" placeholder="25565" value="25565">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="input-group flex-1">
+                <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (Username)</label>
+                <input type="text" id="botUsername" placeholder="AFK_Bot" value="AFK_Bot" required>
+              </div>
+              <div class="input-group flex-1">
+                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري)</label>
+                <input type="password" id="authPassword" placeholder="كلمة مرور التسجيل داخل السيرفر">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="input-group flex-1">
+                <label for="mcVersion"><i class="fa-solid fa-code-branch"></i> إصدار Minecraft</label>
+                <select id="mcVersion">
+                  <option value="auto">تعرف تلقائي (Auto Detect)</option>
+                  <option value="1.20.4">1.20.4</option>
+                  <option value="1.20.1">1.20.1</option>
+                  <option value="1.19.4">1.19.4</option>
+                  <option value="1.18.2">1.18.2</option>
+                  <option value="1.16.5">1.16.5</option>
+                  <option value="1.12.2">1.12.2</option>
+                </select>
+              </div>
+
+              <div class="input-group flex-1">
+                <label for="authMode"><i class="fa-solid fa-shield-halved"></i> نوع المصادقة (Auth)</label>
+                <select id="authMode">
+                  <option value="offline">سيرفر مكرك (Offline / Cracked)</option>
+                  <option value="microsoft">حساب أصلي (Microsoft)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="connectBtn" class="btn btn-success">
+                <i class="fa-solid fa-play"></i>
+                <span>بدء الاتصال (Connect)</span>
+              </button>
+              <button type="button" id="disconnectBtn" class="btn btn-danger">
+                <i class="fa-solid fa-stop"></i>
+                <span>إيقاف وفصل البوت</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Live Terminal / Console Card -->
+      <div class="card glass-panel terminal-card">
+        <div class="card-header terminal-header">
+          <div>
+            <h3><i class="fa-solid fa-terminal"></i> سجل الرسائل المباشر (Live Console)</h3>
+            <span class="sub-text">رسائل السيرفر وحالة البوت تحدث لحظياً</span>
+          </div>
+          <button id="clearLogsBtn" class="btn btn-sm btn-outline-secondary">
+            <i class="fa-solid fa-trash-can"></i> مسح السجل
+          </button>
+        </div>
+
+        <div id="terminalBody" class="terminal-body">
+          <div class="log-entry system">
+            <span class="log-time">[00:00:00]</span>
+            <span class="log-type">[SYSTEM]</span>
+            <span class="log-msg">جاري تحميل السجلات من لوحة التحكم...</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="main-footer">
+      <div class="container footer-content">
+        <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026</p>
+        <span class="footer-badge"><i class="fa-solid fa-bolt"></i> Powered by Mineflayer & Express</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

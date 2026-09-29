@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minecraft AFK Bot | لوحة التحكم</title>
+  <title>Minecraft AFK Bot | لوحة التحكم الذكية</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
@@ -56,8 +56,8 @@
             <i class="fa-solid fa-cubes"></i>
           </div>
           <div>
-            <h1>لوحة تحكم البوت</h1>
-            <span class="sub-title">Minecraft AFK Manager 24/7</span>
+            <h1>لوحة تحكم البوت الذكي</h1>
+            <span class="sub-title">DonutSMP & Premium / Aternos AFK Manager</span>
           </div>
         </div>
 
@@ -72,13 +72,53 @@
 
     <!-- Main Content Area -->
     <main class="container main-content">
-      
-      <!-- Top Grid: Status & Quick Controls -->
-      <div class="grid-top">
-        <!-- Status Card -->
+
+      <!-- Microsoft Auth Notification Banner (Displays when device code is emitted) -->
+      <div id="msaBanner" class="alert-banner-msa hidden">
+        <div class="msa-banner-content">
+          <div class="msa-icon"><i class="fa-brands fa-microsoft"></i></div>
+          <div class="msa-text">
+            <h4>مطلوب تسجيل الدخول بحساب مايكروسوفت (Microsoft Auth)</h4>
+            <p>يرجى فتح رابط المصادقة وإدخال الكود الموضح أدناه لربط حساب ماينكرافت الرسمي:</p>
+            <div class="msa-code-box">
+              <span class="msa-label">الكود:</span>
+              <strong id="msaCodeValue">----</strong>
+              <button type="button" id="copyMsaCodeBtn" class="btn btn-sm btn-outline-secondary" title="نسخ الكود">
+                <i class="fa-solid fa-copy"></i> نسخ
+              </button>
+            </div>
+          </div>
+          <div class="msa-action">
+            <a id="msaDirectLink" href="https://microsoft.com/link" target="_blank" class="btn btn-primary">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> فتح صفحة الربط
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Server Presets Bar -->
+      <div class="presets-bar glass-panel">
+        <span class="presets-title"><i class="fa-solid fa-bolt"></i> إعدادات سريعة للسيرفرات:</span>
+        <div class="presets-buttons">
+          <button type="button" class="preset-btn" data-preset="donutsmp">
+            <i class="fa-solid fa-cookie-bite"></i> DonutSMP (US)
+          </button>
+          <button type="button" class="preset-btn" data-preset="donutsmp-eu">
+            <i class="fa-solid fa-earth-europe"></i> DonutSMP (EU)
+          </button>
+          <button type="button" class="preset-btn" data-preset="aternos">
+            <i class="fa-solid fa-server"></i> Aternos (مكرك)
+          </button>
+        </div>
+      </div>
+
+      <!-- Grid: Status & Controls -->
+      <div class="dashboard-grid">
+        
+        <!-- 1. Status Card -->
         <div class="card glass-panel status-card">
           <div class="card-header">
-            <h3><i class="fa-solid fa-heart-pulse"></i> حالة الاتصال</h3>
+            <h3><i class="fa-solid fa-heart-pulse"></i> حالة الاتصال والموقع</h3>
             <div id="statusBadge" class="status-badge disconnected">
               <span class="pulse-dot"></span>
               <span id="statusText">غير متصل</span>
@@ -95,13 +135,101 @@
               <span id="activeUsername" class="metric-value">--</span>
             </div>
             <div class="metric-item">
+              <span class="metric-label">نوع الحساب:</span>
+              <span id="activeAuth" class="metric-value badge-auth">--</span>
+            </div>
+            <div class="metric-item">
               <span class="metric-label">مدة التشغيل الحية:</span>
               <span id="activeUptime" class="metric-value">00:00:00</span>
             </div>
           </div>
+
+          <!-- Live Coordinates Display -->
+          <div class="live-coords-section">
+            <div class="coords-header">
+              <span><i class="fa-solid fa-location-crosshairs"></i> إحداثيات البوت اللحظية:</span>
+              <span id="movingIndicator" class="moving-indicator static">
+                <i class="fa-solid fa-person"></i> <span>واقف</span>
+              </span>
+            </div>
+            <div class="coords-display-boxes">
+              <div class="coord-box">
+                <span class="coord-axis">X</span>
+                <span id="currentCoordX" class="coord-val">--</span>
+              </div>
+              <div class="coord-box">
+                <span class="coord-axis">Y</span>
+                <span id="currentCoordY" class="coord-val">--</span>
+              </div>
+              <div class="coord-box">
+                <span class="coord-axis">Z</span>
+                <span id="currentCoordZ" class="coord-val">--</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- Connection Form Card -->
+        <!-- 2. Standing Position & Pathfinding Card -->
+        <div class="card glass-panel position-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-map-pin"></i> تحديد مكان الوقوف بدقة (X, Y, Z)</h3>
+            <span class="badge-feature"><i class="fa-solid fa-compass"></i> نظام الملاحة الذكي</span>
+          </div>
+
+          <div class="position-card-body">
+            <p class="section-desc">حدد الإحداثيات التي ترغب بأن يقف فيها البوت بالضبط (مثل مكان مزرعة AFK أو قاعدتك):</p>
+            
+            <div class="coords-inputs-row">
+              <div class="input-group">
+                <label for="targetX">الإحداثي X</label>
+                <input type="number" step="0.1" id="targetX" placeholder="مثال: 100.5">
+              </div>
+              <div class="input-group">
+                <label for="targetY">الإحداثي Y (الارتفاع)</label>
+                <input type="number" step="0.1" id="targetY" placeholder="مثال: 64">
+              </div>
+              <div class="input-group">
+                <label for="targetZ">الإحداثي Z</label>
+                <input type="number" step="0.1" id="targetZ" placeholder="مثال: -250.5">
+              </div>
+            </div>
+
+            <div class="switches-container">
+              <label class="switch-label">
+                <input type="checkbox" id="autoWalkCheck">
+                <span class="switch-slider"></span>
+                <span class="switch-text">الانتقال التلقائي إلى الموقع المحدد عند الدخول للسيرفر</span>
+              </label>
+
+              <label class="switch-label">
+                <input type="checkbox" id="lockPositionCheck">
+                <span class="switch-slider"></span>
+                <span class="switch-text">تثبيت البوت (العودة تلقائياً لمكان الوقوف إذا دفعه وحش أو لاعب)</span>
+              </label>
+            </div>
+
+            <div class="position-actions">
+              <button type="button" id="goToCoordsBtn" class="btn btn-primary">
+                <i class="fa-solid fa-person-walking"></i>
+                <span>انتقال إلى الإحداثيات الآن</span>
+              </button>
+              <button type="button" id="setCurrentPosBtn" class="btn btn-secondary">
+                <i class="fa-solid fa-crosshairs"></i>
+                <span>تحديد موقعي الحالي كهدف</span>
+              </button>
+              <button type="button" id="stopMoveBtn" class="btn btn-outline-danger">
+                <i class="fa-solid fa-hand"></i>
+                <span>إيقاف الحركة</span>
+              </button>
+              <button type="button" id="savePosConfigBtn" class="btn btn-success">
+                <i class="fa-solid fa-floppy-disk"></i>
+                <span>حفظ الإعدادات</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Connection Form Card -->
         <div class="card glass-panel form-card">
           <div class="card-header">
             <h3><i class="fa-solid fa-sliders"></i> إعدادات الاتصال بالسيرفر</h3>
@@ -111,7 +239,7 @@
             <div class="form-row">
               <div class="input-group flex-2">
                 <label for="serverHost"><i class="fa-solid fa-network-wired"></i> عنوان السيرفر (IP / Domain) *</label>
-                <input type="text" id="serverHost" placeholder="مثال: myserver.aternos.me" required>
+                <input type="text" id="serverHost" placeholder="مثال: donutsmp.net أو EU.donutsmp.net" required>
               </div>
               <div class="input-group flex-1">
                 <label for="serverPort"><i class="fa-solid fa-plug"></i> البورت (Port)</label>
@@ -121,35 +249,47 @@
 
             <div class="form-row">
               <div class="input-group flex-1">
-                <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (Username)</label>
-                <input type="text" id="botUsername" placeholder="AFK_Bot" value="AFK_Bot" required>
+                <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (أو بريد مايكروسوفت)</label>
+                <input type="text" id="botUsername" placeholder="AFK_Bot أو بريد الحساب" value="AFK_Bot" required>
               </div>
               <div class="input-group flex-1">
-                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري)</label>
+                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري للسيرفرات المكركة)</label>
                 <input type="password" id="authPassword" placeholder="كلمة مرور التسجيل داخل السيرفر">
               </div>
             </div>
 
             <div class="form-row">
               <div class="input-group flex-1">
-                <label for="mcVersion"><i class="fa-solid fa-code-branch"></i> إصدار Minecraft</label>
-                <select id="mcVersion">
-                  <option value="auto">تعرف تلقائي (Auto Detect)</option>
-                  <option value="1.20.4">1.20.4</option>
-                  <option value="1.20.1">1.20.1</option>
-                  <option value="1.19.4">1.19.4</option>
-                  <option value="1.18.2">1.18.2</option>
-                  <option value="1.16.5">1.16.5</option>
-                  <option value="1.12.2">1.12.2</option>
+                <label for="authMode"><i class="fa-solid fa-shield-halved"></i> نوع المصادقة (Auth)</label>
+                <select id="authMode">
+                  <option value="microsoft">حساب أصلي رسمي (Microsoft - لسيرفرات DonutSMP)</option>
+                  <option value="offline">سيرفر مكرك (Offline / Cracked - لـ Aternos)</option>
                 </select>
               </div>
 
               <div class="input-group flex-1">
-                <label for="authMode"><i class="fa-solid fa-shield-halved"></i> نوع المصادقة (Auth)</label>
-                <select id="authMode">
-                  <option value="offline">سيرفر مكرك (Offline / Cracked)</option>
-                  <option value="microsoft">حساب أصلي (Microsoft)</option>
+                <label for="mcVersion"><i class="fa-solid fa-code-branch"></i> إصدار Minecraft</label>
+                <select id="mcVersion">
+                  <option value="auto">تعرف تلقائي (Auto Detect)</option>
+                  <option value="1.20.4">1.20.4</option>
+                  <option value="1.20.2">1.20.2</option>
+                  <option value="1.20.1">1.20.1</option>
+                  <option value="1.19.4">1.19.4</option>
+                  <option value="1.18.2">1.18.2</option>
+                  <option value="1.16.5">1.16.5</option>
                 </select>
+              </div>
+            </div>
+
+            <!-- Auto Command row for DonutSMP / Realm joining -->
+            <div class="form-row">
+              <div class="input-group flex-2">
+                <label for="autoCommandInput"><i class="fa-solid fa-terminal"></i> أمر تلقائي بعد الدخول (مثل /smp لدخول سيرفر DonutSMP)</label>
+                <input type="text" id="autoCommandInput" placeholder="مثال: /smp أو /join أو فارغ">
+              </div>
+              <div class="input-group flex-1">
+                <label for="autoCommandDelayInput"><i class="fa-solid fa-clock"></i> التأخير (بالثواني)</label>
+                <input type="number" id="autoCommandDelayInput" placeholder="7" value="7" min="1" max="60">
               </div>
             </div>
 
@@ -165,6 +305,7 @@
             </div>
           </form>
         </div>
+
       </div>
 
       <!-- Live Terminal / Console Card -->
@@ -172,7 +313,7 @@
         <div class="card-header terminal-header">
           <div>
             <h3><i class="fa-solid fa-terminal"></i> سجل الرسائل المباشر (Live Console)</h3>
-            <span class="sub-text">رسائل السيرفر وحالة البوت تحدث لحظياً</span>
+            <span class="sub-text">متابعة رسائل السيرفر، أوامر الحركة، والتحكم المباشر بالشات</span>
           </div>
           <button id="clearLogsBtn" class="btn btn-sm btn-outline-secondary">
             <i class="fa-solid fa-trash-can"></i> مسح السجل
@@ -186,6 +327,18 @@
             <span class="log-msg">جاري تحميل السجلات من لوحة التحكم...</span>
           </div>
         </div>
+
+        <!-- Interactive Chat / Command Bar -->
+        <form id="chatCommandForm" class="terminal-chat-bar">
+          <div class="chat-input-wrapper">
+            <i class="fa-solid fa-chevron-left terminal-prompt-icon"></i>
+            <input type="text" id="chatInput" placeholder="أرسل رسالة أو أمر إلى السيرفر (مثال: /smp أو /home أو /tpa)..." autocomplete="off">
+          </div>
+          <button type="submit" id="sendChatBtn" class="btn btn-primary btn-sm">
+            <i class="fa-solid fa-paper-plane"></i>
+            <span>إرسال</span>
+          </button>
+        </form>
       </div>
 
     </main>
@@ -194,7 +347,7 @@
     <footer class="main-footer">
       <div class="container footer-content">
         <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026</p>
-        <span class="footer-badge"><i class="fa-solid fa-bolt"></i> Powered by Mineflayer & Express</span>
+        <span class="footer-badge"><i class="fa-solid fa-bolt"></i> DonutSMP Pathfinder & Express Edition</span>
       </div>
     </footer>
   </div>

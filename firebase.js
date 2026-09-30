@@ -1,11 +1,12 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 const fs = require('fs');
 const path = require('path');
 
 let db = null;
 let isFirebaseConnected = false;
 
-// تهيئة مجلد محلي احتياطي (Fallback Storage) لضمان عمل المشروع فوراً قبل وضع مفاتيح فايربيس
+// تهيئة مجلد محلي احتياطي (Fallback Storage) في حال عدم توفر الاتصال
 const LOCAL_DB_DIR = path.join(__dirname, 'data');
 const LOCAL_DB_FILE = path.join(LOCAL_DB_DIR, 'local-db.json');
 
@@ -45,19 +46,19 @@ function writeLocalDb(data) {
   fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify(data, null, 2));
 }
 
-// 1. محاولة الاتصال بـ Firebase Firestore
+// 1. الاتصال بـ Firebase Firestore
 function initFirebase() {
   const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
 
   try {
     if (fs.existsSync(serviceAccountPath)) {
       const serviceAccount = require(serviceAccountPath);
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+      initializeApp({
+        credential: cert(serviceAccount)
       });
-      db = admin.firestore();
+      db = getFirestore();
       isFirebaseConnected = true;
-      console.log('[Firebase] تم الاتصال بـ Firebase Firestore بنجاح عبر serviceAccountKey.json!');
+      console.log('[Firebase] تم الاتصال بقاعدة بيانات Firebase Firestore بنجاح (المشروع: ' + (serviceAccount.project_id || 'متصل') + ')!');
       return;
     }
 
@@ -67,46 +68,32 @@ function initFirebase() {
           ? process.env.FIREBASE_SERVICE_ACCOUNT
           : Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8')
       );
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+      initializeApp({
+        credential: cert(serviceAccount)
       });
-      db = admin.firestore();
+      db = getFirestore();
       isFirebaseConnected = true;
-      console.log('[Firebase] تم الاتصال بـ Firebase Firestore بنجاح عبر FIREBASE_SERVICE_ACCOUNT!');
+      console.log('[Firebase] تم الاتصال بقاعدة بيانات Firebase Firestore بنجاح عبر المتغير البيئي!');
       return;
     }
 
-    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-        })
-      });
-      db = admin.firestore();
-      isFirebaseConnected = true;
-      console.log('[Firebase] تم الاتصال بـ Firebase Firestore بنجاح عبر المتغيرات البيئية!');
-      return;
-    }
-
-    console.log('[Database] لم يتم العثور على مفاتيح Firebase حالياً. جاري العمل بالنظام المحلي التلقائي (Local Store) دون مشاكل.');
+    console.log('[Database] لم يتم العثور على مفاتيح Firebase حالياً. جاري العمل بالنظام المحلي التلقائي.');
     ensureLocalDb();
   } catch (err) {
     console.error('[Firebase Error] خطأ أثناء تهيئة فايربيس:', err.message);
-    console.log('[Database] التبديل إلى التخزين المحلي الآمن لحين ضبط المفاتيح.');
+    console.log('[Database] التبديل إلى التخزين المحلي الاحتياطي.');
     ensureLocalDb();
   }
 }
 
 initFirebase();
 
-// 2. دوال التعامل مع المستخدمين (Users)
+// 2. دوال المستخدمين (Users)
 async function getUser(username) {
   if (!username) return null;
   const cleanUsername = username.trim().toLowerCase();
 
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const doc = await db.collection('users').doc(cleanUsername).get();
     return doc.exists ? doc.data() : null;
   } else {
@@ -124,8 +111,8 @@ async function createUser(username, password, role = 'customer') {
     createdAt: new Date().toISOString()
   };
 
-  if (isFirebaseConnected) {
-    await db.collection('users').doc(cleanUsername).set(userData);
+  if (isFirebaseConnected && db) {
+    await db.collection('users').doc(cleanUsername).set(userData, { merge: true });
   } else {
     const data = readLocalDb();
     data.users[cleanUsername] = userData;
@@ -134,12 +121,12 @@ async function createUser(username, password, role = 'customer') {
   return userData;
 }
 
-// 3. دوال التعامل مع الاشتراكات (Subscriptions)
+// 3. دوال الاشتراكات (Subscriptions)
 async function getSubscription(userId) {
   if (!userId) return null;
   const cleanId = userId.trim().toLowerCase();
 
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const doc = await db.collection('subscriptions').doc(cleanId).get();
     if (!doc.exists) return null;
     return doc.data();
@@ -156,7 +143,7 @@ async function createOrUpdateSubscription(userId, days = 7, pricePaid = 40000) {
   const now = new Date();
   let baseDate = now;
 
-  // إذا كان اشتراكه الحالي سارياً، نقوم بتمديده فوق المدة المتبقية
+  // إذا كان الاشتراك الحالي سارياً يتم التمديد فوق المتبقي
   if (currentSub && currentSub.status === 'active' && new Date(currentSub.expiresAt) > now) {
     baseDate = new Date(currentSub.expiresAt);
   }
@@ -173,7 +160,7 @@ async function createOrUpdateSubscription(userId, days = 7, pricePaid = 40000) {
     lastRenewedAt: now.toISOString()
   };
 
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     await db.collection('subscriptions').doc(cleanId).set(subData, { merge: true });
   } else {
     const data = readLocalDb();
@@ -186,8 +173,8 @@ async function createOrUpdateSubscription(userId, days = 7, pricePaid = 40000) {
 
 async function setSubscriptionStatus(userId, status) {
   const cleanId = userId.trim().toLowerCase();
-  if (isFirebaseConnected) {
-    await db.collection('subscriptions').doc(cleanId).update({ status: status });
+  if (isFirebaseConnected && db) {
+    await db.collection('subscriptions').doc(cleanId).set({ status: status }, { merge: true });
   } else {
     const data = readLocalDb();
     if (data.subscriptions[cleanId]) {
@@ -198,7 +185,7 @@ async function setSubscriptionStatus(userId, status) {
 }
 
 async function getAllSubscriptions() {
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const snapshot = await db.collection('subscriptions').get();
     return snapshot.docs.map(doc => doc.data());
   } else {
@@ -207,7 +194,7 @@ async function getAllSubscriptions() {
   }
 }
 
-// 4. دوال التعامل مع أكواد التفعيل (License Keys)
+// 4. دوال أكواد التفعيل (License Keys)
 async function createLicenseKey(days = 7, price = 40000) {
   const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
   const randomPart2 = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -223,8 +210,8 @@ async function createLicenseKey(days = 7, price = 40000) {
     createdAt: new Date().toISOString()
   };
 
-  if (isFirebaseConnected) {
-    await db.collection('licenseKeys').doc(key).set(keyData);
+  if (isFirebaseConnected && db) {
+    await db.collection('licenseKeys').doc(key).set(keyData, { merge: true });
   } else {
     const data = readLocalDb();
     data.licenseKeys[key] = keyData;
@@ -240,7 +227,7 @@ async function redeemLicenseKey(key, userId) {
 
   let keyData = null;
 
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const doc = await db.collection('licenseKeys').doc(cleanKey).get();
     if (!doc.exists) return { success: false, message: 'كود الاشتراك غير صحيح أو غير موجود!' };
     keyData = doc.data();
@@ -254,18 +241,18 @@ async function redeemLicenseKey(key, userId) {
     return { success: false, message: `هذا الكود تم استخدامه مسبقاً بواسطة: ${keyData.usedBy}` };
   }
 
-  // تفعيل الاشتراك
+  // تفعيل الاشتراك لمدة الأيام المحددة
   const newSub = await createOrUpdateSubscription(cleanId, keyData.days, keyData.price);
 
-  // تحديث حالة الكود
+  // تحديث حالة الكود في فايربيس
   const updateData = {
     isUsed: true,
     usedBy: cleanId,
     usedAt: new Date().toISOString()
   };
 
-  if (isFirebaseConnected) {
-    await db.collection('licenseKeys').doc(cleanKey).update(updateData);
+  if (isFirebaseConnected && db) {
+    await db.collection('licenseKeys').doc(cleanKey).set(updateData, { merge: true });
   } else {
     const data = readLocalDb();
     data.licenseKeys[cleanKey] = { ...keyData, ...updateData };
@@ -276,7 +263,7 @@ async function redeemLicenseKey(key, userId) {
 }
 
 async function getAllLicenseKeys() {
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const snapshot = await db.collection('licenseKeys').get();
     return snapshot.docs.map(doc => doc.data());
   } else {
@@ -285,10 +272,10 @@ async function getAllLicenseKeys() {
   }
 }
 
-// 5. حفظ إعدادات بوت الزبون (Bot Config)
+// 5. حفظ إعدادات البوت لكل زبون (Bot Config)
 async function getBotConfig(userId) {
   const cleanId = userId.trim().toLowerCase();
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     const doc = await db.collection('bots').doc(cleanId).get();
     return doc.exists ? doc.data() : null;
   } else {
@@ -299,7 +286,7 @@ async function getBotConfig(userId) {
 
 async function saveBotConfig(userId, botData) {
   const cleanId = userId.trim().toLowerCase();
-  if (isFirebaseConnected) {
+  if (isFirebaseConnected && db) {
     await db.collection('bots').doc(cleanId).set(botData, { merge: true });
   } else {
     const data = readLocalDb();

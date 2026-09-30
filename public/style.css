@@ -494,6 +494,13 @@ body {
   transform: translateY(-1px);
 }
 
+.preset-btn.active-preset {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.25);
+}
+
 /* Dashboard Grid */
 .dashboard-grid {
   display: grid;

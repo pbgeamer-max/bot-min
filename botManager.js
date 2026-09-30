@@ -4,6 +4,13 @@ const { GoalNear } = goals;
 const path = require('path');
 const fs = require('fs');
 
+let bedrock = null;
+try {
+  bedrock = require('bedrock-protocol');
+} catch (e) {
+  console.warn('[BotManager] bedrock-protocol could not be loaded:', e.message);
+}
+
 // قاموس لتخزين كائنات البوتات الشغالة لكل مستخدم
 // Key: userId -> Value: BotInstanceData
 const activeBots = new Map();
@@ -21,10 +28,12 @@ function getOrCreateUserBotData(userId) {
       isReconnecting: false,
       hasLoggedIn: false,
       afkInterval: null,
+      msaCode: null,
       logs: [],
       config: {
+        edition: 'bedrock', // 'bedrock' (Free Xbox - DonutSMP 19132) | 'java' (Official Minecraft Java 25565)
         host: 'donutsmp.net',
-        port: 25565,
+        port: 19132,
         username: `AFK_${cleanId}`,
         version: 'auto',
         auth: 'microsoft',
@@ -78,20 +87,85 @@ function startBotForUser(userId, newConfig = {}) {
   userData.userDisconnected = false;
   userData.isReconnecting = false;
   userData.hasLoggedIn = false;
+  userData.msaCode = null;
   userData.botStatus = 'connecting';
 
-  addBotLog(userData, 'bot', `جاري الاتصال بالسيرفر ${userData.config.host}:${userData.config.port} باسم '${userData.config.username}' (${userData.config.auth === 'microsoft' ? 'Microsoft رسمي' : 'مكرك'})...`);
+  const isBedrock = userData.config.edition === 'bedrock';
+
+  // ----------------------------------------
+  // A. تشغيل بوت نسخة البيدروك (Bedrock 19132 - حساب إكسبوكس مجاني 100%)
+  // ----------------------------------------
+  if (isBedrock) {
+    if (!bedrock) {
+      userData.botStatus = 'disconnected';
+      addBotLog(userData, 'error', 'حزمة bedrock-protocol غير متوفرة في النظام!');
+      return { success: false, message: 'حزمة bedrock-protocol غير متوفرة' };
+    }
+
+    const host = userData.config.host || 'donutsmp.net';
+    const port = parseInt(userData.config.port || 19132, 10);
+    userData.config.port = port;
+
+    addBotLog(userData, 'bot', `🚀 جاري الاتصال بسيرفر DonutSMP (Bedrock) ${host}:${port} باسم '${userData.config.username}' (حساب إكسبوكس مجاني بدون شراء اللعبة)...`);
+
+    const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${userData.userId}`);
+    if (!fs.existsSync(bedrockAuthFolder)) {
+      fs.mkdirSync(bedrockAuthFolder, { recursive: true });
+    }
+
+    try {
+      const client = bedrock.createClient({
+        host: host,
+        port: port,
+        username: userData.config.username,
+        offline: false, // Xbox Live Auth
+        profilesFolder: bedrockAuthFolder,
+        onMsaCode: (data) => {
+          const code = data.user_code || data.userCode;
+          const url = data.verification_uri || data.verificationUri || 'https://microsoft.com/link';
+          userData.msaCode = {
+            code,
+            url,
+            link: url,
+            expiresAt: Date.now() + ((data.expires_in || 900) * 1000)
+          };
+          addBotLog(userData, 'auth', `🔐 [حساب إكسبوكس مجاني] مطلوب تأكيد الكود لمرة واحدة:`);
+          addBotLog(userData, 'auth', `1️⃣ افتح الرابط: ${url}`);
+          addBotLog(userData, 'auth', `2️⃣ أدخل الكود: ${code}`);
+          addBotLog(userData, 'auth', `🔗 رابط مباشر: https://microsoft.com/link?otc=${code}`);
+        }
+      });
+
+      userData.bot = client;
+      setupBedrockBotEvents(userData, client);
+      return { success: true, message: 'جاري بدء اتصال بوت البيدروك بالحساب المجاني...' };
+    } catch (err) {
+      userData.botStatus = 'disconnected';
+      addBotLog(userData, 'error', `خطأ أثناء إنشاء بوت البيدروك: ${err.message || err}`);
+      scheduleReconnect(userData);
+      return { success: false, message: err.message };
+    }
+  }
+
+  // ----------------------------------------
+  // B. تشغيل بوت نسخة الجافا (Java 25565 - حساب مايكروسوفت أصلي)
+  // ----------------------------------------
+  const host = userData.config.host || 'donutsmp.net';
+  const port = parseInt(userData.config.port || 25565, 10);
+  userData.config.port = port;
+
+  addBotLog(userData, 'bot', `جاري الاتصال بسيرفر Java ${host}:${port} باسم '${userData.config.username}' (${userData.config.auth === 'microsoft' ? 'Microsoft رسمي' : 'مكرك'})...`);
 
   // مجلد كاش مخصص لكل مستخدم لتسجيلات الدخول
-  const userAuthFolder = path.join(__dirname, 'auth-cache', userData.userId);
+  const userAuthFolder = path.join(__dirname, 'auth-cache', `java-${userData.userId}`);
   if (!fs.existsSync(userAuthFolder)) {
     fs.mkdirSync(userAuthFolder, { recursive: true });
   }
 
   try {
     const botOptions = {
-      host: userData.config.host,
-      port: userData.config.port,
+      host: host,
+      port: port,
       username: userData.config.username,
       auth: userData.config.auth,
       checkTimeoutInterval: 90000,
@@ -104,17 +178,25 @@ function startBotForUser(userId, newConfig = {}) {
 
     if (userData.config.auth === 'microsoft') {
       botOptions.onMsaCode = (data) => {
-        addBotLog(userData, 'auth', `🔐 [تسجيل مايكروسوفت] مطلوب المصادقة لمرة واحدة:`);
-        addBotLog(userData, 'auth', `1️⃣ افتح: ${data.verification_uri}`);
-        addBotLog(userData, 'auth', `2️⃣ أدخل الكود: ${data.user_code}`);
-        addBotLog(userData, 'auth', `🔗 رابط مباشر: https://microsoft.com/link?otc=${data.user_code}`);
+        const code = data.user_code || data.userCode;
+        const url = data.verification_uri || data.verificationUri || 'https://microsoft.com/link';
+        userData.msaCode = {
+          code,
+          url,
+          link: url,
+          expiresAt: Date.now() + ((data.expires_in || 900) * 1000)
+        };
+        addBotLog(userData, 'auth', `🔐 [تسجيل مايكروسوفت رسمي] مطلوب المصادقة لمرة واحدة:`);
+        addBotLog(userData, 'auth', `1️⃣ افتح: ${url}`);
+        addBotLog(userData, 'auth', `2️⃣ أدخل الكود: ${code}`);
+        addBotLog(userData, 'auth', `🔗 رابط مباشر: https://microsoft.com/link?otc=${code}`);
       };
     }
 
     const bot = mineflayer.createBot(botOptions);
     userData.bot = bot;
     setupBotEvents(userData, bot);
-    return { success: true, message: 'جاري بدء اتصال البوت...' };
+    return { success: true, message: 'جاري بدء اتصال بوت الجافا...' };
   } catch (err) {
     userData.botStatus = 'disconnected';
     addBotLog(userData, 'error', `خطأ أثناء إنشاء البوت: ${err.message || err}`);
@@ -316,6 +398,102 @@ function stopAntiAFK(userData) {
   }
 }
 
+// أحداث بوت البيدروك (Bedrock Edition Events)
+function setupBedrockBotEvents(userData, client) {
+  client.on('join', () => {
+    userData.botStatus = 'connected';
+    userData.connectedSince = new Date();
+    userData.hasLoggedIn = true;
+    userData.msaCode = null;
+    addBotLog(userData, 'success', `🟢 تم الاتصال ودخول سيرفر DonutSMP (Bedrock Edition) بنجاح بحساب إكسبوكس المجاني!`);
+
+    // تنفيذ الأمر التلقائي (مثل /smp)
+    const conf = userData.config;
+    if (conf.autoCommand && conf.autoCommand.trim()) {
+      const delayMs = (conf.autoCommandDelay || 7) * 1000;
+      addBotLog(userData, 'system', `سيتم إرسال أمر الدخول (${conf.autoCommand}) بعد ${conf.autoCommandDelay || 7} ثوانٍ...`);
+      setTimeout(() => {
+        if (userData.bot && userData.botStatus === 'connected') {
+          try {
+            client.queue('text', {
+              type: 'chat',
+              needs_translation: false,
+              source_name: client.username || userData.config.username,
+              xuid: '',
+              platform_chat_id: '',
+              filtered_message: '',
+              message: conf.autoCommand.trim()
+            });
+            addBotLog(userData, 'chat', `[أمر تلقائي] تم إرسال: ${conf.autoCommand}`);
+          } catch (e) {}
+        }
+      }, delayMs);
+    }
+
+    startBedrockAntiAfk(userData, client);
+  });
+
+  client.on('text', (packet) => {
+    try {
+      if (packet.message) {
+        addBotLog(userData, 'chat', packet.message);
+      }
+    } catch (e) {}
+  });
+
+  client.on('kick', (packet) => {
+    const reason = packet.message || 'تم الطرد من السيرفر';
+    userData.botStatus = 'disconnected';
+    userData.msaCode = null;
+    addBotLog(userData, 'warn', `⚠️ تم طرد البوت من سيرفر البيدروك. السبب: ${reason}`);
+    cleanUpBot(userData);
+    scheduleReconnect(userData);
+  });
+
+  client.on('close', () => {
+    userData.botStatus = 'disconnected';
+    userData.msaCode = null;
+    addBotLog(userData, 'warn', 'انقطع الاتصال بسيرفر البيدروك.');
+    cleanUpBot(userData);
+    scheduleReconnect(userData);
+  });
+
+  client.on('error', (err) => {
+    userData.botStatus = 'disconnected';
+    userData.msaCode = null;
+    addBotLog(userData, 'error', `خطأ في اتصال البيدروك: ${err.message || err}`);
+    cleanUpBot(userData);
+    scheduleReconnect(userData);
+  });
+}
+
+function startBedrockAntiAfk(userData, client) {
+  if (userData.afkInterval) clearInterval(userData.afkInterval);
+  userData.afkInterval = setInterval(() => {
+    if (!userData.bot || userData.botStatus !== 'connected') return;
+    try {
+      client.queue('player_action', {
+        runtime_entity_id: client.entityId || 0,
+        action: 'start_sneak',
+        position: { x: 0, y: 0, z: 0 },
+        result_position: { x: 0, y: 0, z: 0 },
+        face: 0
+      });
+      setTimeout(() => {
+        if (userData.bot && userData.botStatus === 'connected') {
+          client.queue('player_action', {
+            runtime_entity_id: client.entityId || 0,
+            action: 'stop_sneak',
+            position: { x: 0, y: 0, z: 0 },
+            result_position: { x: 0, y: 0, z: 0 },
+            face: 0
+          });
+        }
+      }, 500);
+    } catch (e) {}
+  }, 25000);
+}
+
 // 6. تنظيف وفصل البوت
 function cleanUpBot(userData) {
   stopAntiAFK(userData);
@@ -326,7 +504,15 @@ function cleanUpBot(userData) {
         userData.bot.pathfinder.setGoal(null);
       }
       userData.bot.removeAllListeners();
-      userData.bot.end();
+      if (typeof userData.bot.close === 'function') {
+        userData.bot.close();
+      } else if (typeof userData.bot.quit === 'function') {
+        userData.bot.quit();
+      } else if (typeof userData.bot.end === 'function') {
+        userData.bot.end();
+      } else if (typeof userData.bot.disconnect === 'function') {
+        userData.bot.disconnect();
+      }
     } catch (e) {}
     userData.bot = null;
   }
@@ -343,6 +529,7 @@ function stopBotForUser(userId) {
 
   cleanUpBot(userData);
   userData.botStatus = 'disconnected';
+  userData.msaCode = null;
   addBotLog(userData, 'system', 'تم إيقاف وفصل البوت بنجاح.');
   return { success: true, message: 'تم إيقاف البوت وفصله عن السيرفر' };
 }
@@ -379,9 +566,27 @@ function sendBotChat(userId, message) {
   }
 
   const cleanMsg = message.trim();
-  bot.chat(cleanMsg);
-  addBotLog(userData, 'chat', `[أمر يدوي] ${cleanMsg}`);
-  return { success: true, message: 'تم إرسال الأمر للسيرفر بنجاح' };
+  if (userData.config.edition === 'bedrock') {
+    try {
+      bot.queue('text', {
+        type: 'chat',
+        needs_translation: false,
+        source_name: bot.username || userData.config.username,
+        xuid: '',
+        platform_chat_id: '',
+        filtered_message: '',
+        message: cleanMsg
+      });
+      addBotLog(userData, 'chat', `[أنت]: ${cleanMsg}`);
+      return { success: true, message: 'تم إرسال الأمر لسيرفر البيدروك بنجاح' };
+    } catch (e) {
+      return { success: false, message: 'فشل إرسال الأمر في البيدروك' };
+    }
+  } else {
+    bot.chat(cleanMsg);
+    addBotLog(userData, 'chat', `[أمر يدوي] ${cleanMsg}`);
+    return { success: true, message: 'تم إرسال الأمر للسيرفر بنجاح' };
+  }
 }
 
 // 10. جلب حالة البوت اللحظية
@@ -415,6 +620,7 @@ function getUserBotStatus(userId) {
     position: currentPos,
     isMoving,
     uptimeSeconds,
+    msaCode: userData.msaCode || null,
     logs: userData.logs
   };
 }

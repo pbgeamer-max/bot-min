@@ -88,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Dashboard Controls & Form
   const botConnectForm = document.getElementById('botConnectForm');
+  const botEditionSelect = document.getElementById('botEdition');
   const serverHostInput = document.getElementById('serverHost');
   const serverPortInput = document.getElementById('serverPort');
   const botUsernameInput = document.getElementById('botUsername');
@@ -117,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusBadge = document.getElementById('statusBadge');
   const statusText = document.getElementById('statusText');
   const targetServerSpan = document.getElementById('targetServer');
+  const activeEditionSpan = document.getElementById('activeEdition');
   const activeUsernameSpan = document.getElementById('activeUsername');
   const activeAuthSpan = document.getElementById('activeAuth');
   const activeUptimeSpan = document.getElementById('activeUptime');
@@ -724,7 +726,27 @@ document.addEventListener('DOMContentLoaded', () => {
   presetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const preset = btn.dataset.preset;
-      if (preset === 'donutsmp') {
+      presetButtons.forEach(b => b.classList.remove('active-preset'));
+      btn.classList.add('active-preset');
+
+      if (preset === 'donutsmp-bedrock') {
+        if (botEditionSelect) botEditionSelect.value = 'bedrock';
+        serverHostInput.value = 'donutsmp.net';
+        serverPortInput.value = '19132';
+        authModeSelect.value = 'microsoft';
+        mcVersionSelect.value = 'auto';
+        autoCommandInput.value = '/smp';
+        autoCommandDelayInput.value = '7';
+      } else if (preset === 'donutsmp-bedrock-eu') {
+        if (botEditionSelect) botEditionSelect.value = 'bedrock';
+        serverHostInput.value = 'EU.donutsmp.net';
+        serverPortInput.value = '19132';
+        authModeSelect.value = 'microsoft';
+        mcVersionSelect.value = 'auto';
+        autoCommandInput.value = '/smp';
+        autoCommandDelayInput.value = '7';
+      } else if (preset === 'donutsmp-java' || preset === 'donutsmp') {
+        if (botEditionSelect) botEditionSelect.value = 'java';
         serverHostInput.value = 'donutsmp.net';
         serverPortInput.value = '25565';
         authModeSelect.value = 'microsoft';
@@ -732,6 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         autoCommandInput.value = '/smp';
         autoCommandDelayInput.value = '7';
       } else if (preset === 'donutsmp-eu') {
+        if (botEditionSelect) botEditionSelect.value = 'java';
         serverHostInput.value = 'EU.donutsmp.net';
         serverPortInput.value = '25565';
         authModeSelect.value = 'microsoft';
@@ -739,6 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
         autoCommandInput.value = '/smp';
         autoCommandDelayInput.value = '7';
       } else if (preset === 'aternos') {
+        if (botEditionSelect) botEditionSelect.value = 'java';
         serverHostInput.value = 'myserver.aternos.me';
         serverPortInput.value = '25565';
         authModeSelect.value = 'offline';
@@ -748,6 +772,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+
+  if (botEditionSelect) {
+    botEditionSelect.addEventListener('change', () => {
+      if (botEditionSelect.value === 'bedrock') {
+        serverPortInput.value = '19132';
+      } else if (botEditionSelect.value === 'java') {
+        serverPortInput.value = '25565';
+      }
+    });
+  }
 
   // 10. جلب حالة البوت الحالية
   async function fetchBotStatus() {
@@ -792,6 +826,16 @@ document.addEventListener('DOMContentLoaded', () => {
       targetServerSpan.textContent = 'لم يحدد بعد';
     }
 
+    if (activeEditionSpan) {
+      if (config.edition === 'bedrock') {
+        activeEditionSpan.textContent = 'بيدروك (Bedrock 19132) 🟢';
+        activeEditionSpan.style.color = '#4ade80';
+      } else {
+        activeEditionSpan.textContent = 'جافا (Java 25565) ☕';
+        activeEditionSpan.style.color = '#60a5fa';
+      }
+    }
+
     activeUsernameSpan.textContent = config.username || '--';
     activeAuthSpan.textContent = config.auth === 'microsoft' ? 'Microsoft رسمي' : 'Cracked مكرك';
 
@@ -816,6 +860,9 @@ document.addEventListener('DOMContentLoaded', () => {
       movingIndicator.innerHTML = '<i class="fa-solid fa-person"></i> <span>غير متصل</span>';
     }
 
+    if (botEditionSelect && document.activeElement !== botEditionSelect && config.edition) {
+      botEditionSelect.value = config.edition;
+    }
     if (document.activeElement !== serverHostInput && config.host) {
       serverHostInput.value = config.host;
     }
@@ -857,31 +904,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     currentUptimeSeconds = uptimeSeconds || 0;
-    checkMsaBanner(logs);
+    checkMsaBanner(data, logs);
     renderLogs(logs);
   }
 
-  function checkMsaBanner(logs) {
-    if (!logs || !logs.length) return;
-
+  function checkMsaBanner(data, logs) {
     let foundCode = null;
     let foundLink = 'https://microsoft.com/link';
 
-    const recentLogs = logs.slice(-15);
-    for (const log of recentLogs) {
-      if (log.message.includes('otc=')) {
-        const match = log.message.match(/otc=([A-Z0-9]+)/i);
-        if (match && match[1]) {
-          foundCode = match[1];
-          foundLink = `https://microsoft.com/link?otc=${foundCode}`;
-          break;
-        }
-      } else if (log.message.includes('أدخل الكود:')) {
-        const match = log.message.match(/أدخل الكود:\s*([A-Z0-9]+)/i);
-        if (match && match[1]) {
-          foundCode = match[1];
-          foundLink = `https://microsoft.com/link?otc=${foundCode}`;
-          break;
+    if (data && data.msaCode && data.msaCode.code) {
+      foundCode = data.msaCode.code;
+      foundLink = data.msaCode.link || `https://microsoft.com/link?otc=${foundCode}`;
+    }
+
+    if (!foundCode && logs && logs.length) {
+      const recentLogs = logs.slice(-15);
+      for (const log of recentLogs) {
+        if (log.message.includes('otc=')) {
+          const match = log.message.match(/otc=([A-Z0-9]+)/i);
+          if (match && match[1]) {
+            foundCode = match[1];
+            foundLink = `https://microsoft.com/link?otc=${foundCode}`;
+            break;
+          }
+        } else if (log.message.includes('أدخل الكود:')) {
+          const match = log.message.match(/أدخل الكود:\s*([A-Z0-9]+)/i);
+          if (match && match[1]) {
+            foundCode = match[1];
+            foundLink = `https://microsoft.com/link?otc=${foundCode}`;
+            break;
+          }
         }
       }
     }
@@ -1074,6 +1126,7 @@ document.addEventListener('DOMContentLoaded', () => {
   botConnectForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const edition = botEditionSelect ? botEditionSelect.value : 'bedrock';
     const host = serverHostInput.value.trim();
     const port = serverPortInput.value.trim();
     const username = botUsernameInput.value.trim();
@@ -1102,6 +1155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          edition,
           host,
           port,
           username,

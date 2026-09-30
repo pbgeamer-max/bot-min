@@ -21,8 +21,11 @@
     "express": "^4.19.2",
     "express-session": "^1.18.0",
     "firebase-admin": "^14.5.0",
+    "bedrock-protocol": "^3.60.1",
+    "minecraft-data": "^3.117.0",
     "mineflayer": "^4.20.0",
-    "mineflayer-pathfinder": "^2.4.5"
+    "mineflayer-pathfinder": "^2.4.5",
+    "prismarine-xbox-services": "github:PrismarineJS/prismarine-xbox-services#052a9676f514c5470a723651b1dbb1adcf238944"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -336,6 +336,7 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
     : req.session.user.username;
 
   const {
+    edition,
     host,
     port,
     username,
@@ -351,16 +352,20 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
     autoCommandDelay
   } = req.body;
 
+  const botEdition = (edition === 'java') ? 'java' : 'bedrock';
+  let defaultPort = botEdition === 'bedrock' ? 19132 : 25565;
+
   let rawHost = (host || 'donutsmp.net').trim();
-  let rawPort = port ? parseInt(port, 10) : 25565;
+  let rawPort = port ? parseInt(port, 10) : defaultPort;
 
   if (rawHost.includes(':')) {
     const parts = rawHost.split(':');
     rawHost = parts[0];
-    rawPort = parseInt(parts[1], 10) || 25565;
+    rawPort = parseInt(parts[1], 10) || defaultPort;
   }
 
   const botConfig = {
+    edition: botEdition,
     host: rawHost,
     port: rawPort,
     username: (username && username.trim()) ? username.trim() : `AFK_${targetUser}`,

@@ -210,14 +210,17 @@
       <div class="presets-bar glass-panel">
         <span class="presets-title"><i class="fa-solid fa-bolt"></i> إعدادات سريعة لسيرفرات DonutSMP:</span>
         <div class="presets-buttons">
-          <button type="button" class="preset-btn" data-preset="donutsmp">
-            <i class="fa-solid fa-cookie-bite"></i> DonutSMP (US)
+          <button type="button" class="preset-btn active-preset" data-preset="donutsmp-bedrock">
+            <i class="fa-solid fa-shield-halved" style="color: #4ade80;"></i> DonutSMP (بيدروك - مجاني بدون شراء اللعبة 19132)
           </button>
-          <button type="button" class="preset-btn" data-preset="donutsmp-eu">
-            <i class="fa-solid fa-earth-europe"></i> DonutSMP (EU)
+          <button type="button" class="preset-btn" data-preset="donutsmp-bedrock-eu">
+            <i class="fa-solid fa-earth-europe" style="color: #60a5fa;"></i> DonutSMP EU (بيدروك 19132)
+          </button>
+          <button type="button" class="preset-btn" data-preset="donutsmp-java">
+            <i class="fa-solid fa-coffee"></i> DonutSMP (جافا أصلي 25565)
           </button>
           <button type="button" class="preset-btn" data-preset="aternos">
-            <i class="fa-solid fa-server"></i> Aternos (مكرك)
+            <i class="fa-solid fa-server"></i> سيرفر مكرك (Offline)
           </button>
         </div>
       </div>
@@ -239,6 +242,10 @@
             <div class="metric-item">
               <span class="metric-label">السيرفر المستهدف:</span>
               <span id="targetServer" class="metric-value">لم يحدد بعد</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">نسخة اللعبة:</span>
+              <span id="activeEdition" class="metric-value badge-edition" style="color: #4ade80; font-weight: bold;">بيدروك (Bedrock 19132)</span>
             </div>
             <div class="metric-item">
               <span class="metric-label">اسم البوت:</span>
@@ -347,13 +354,26 @@
 
           <form id="botConnectForm" class="bot-form">
             <div class="form-row">
+              <div class="input-group flex-1">
+                <label for="botEdition"><i class="fa-solid fa-gamepad"></i> نسخة اللعبة (Edition) *</label>
+                <select id="botEdition">
+                  <option value="bedrock" selected>🟢 Bedrock (بيدروك 19132) - حساب إكسبوكس مجاني 100% بدون شراء اللعبة (موصى به لـ DonutSMP)</option>
+                  <option value="java">☕ Java (جافا 25565) - حساب مايكروسوفت أصلي (يتطلب شراء اللعبة بـ 30$)</option>
+                </select>
+                <small id="editionHint" style="font-size: 0.82rem; margin-top: 5px; color: #4ade80; display: flex; align-items: center; gap: 6px;">
+                  <i class="fa-solid fa-circle-check"></i> الخيار الأفضل والموصى به لـ DonutSMP: يتيح للزبائن استخدام حساب إكسبوكس مجاني دون شراء اللعبة!
+                </small>
+              </div>
+            </div>
+
+            <div class="form-row">
               <div class="input-group flex-2">
                 <label for="serverHost"><i class="fa-solid fa-network-wired"></i> عنوان السيرفر (IP / Domain) *</label>
                 <input type="text" id="serverHost" placeholder="مثال: donutsmp.net أو EU.donutsmp.net" value="donutsmp.net" required>
               </div>
               <div class="input-group flex-1">
                 <label for="serverPort"><i class="fa-solid fa-plug"></i> البورت (Port)</label>
-                <input type="number" id="serverPort" placeholder="25565" value="25565">
+                <input type="number" id="serverPort" placeholder="19132" value="19132">
               </div>
             </div>
 

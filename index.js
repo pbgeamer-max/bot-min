@@ -32,7 +32,10 @@ const {
   sendBotChat,
   getUserBotStatus,
   getOrCreateUserBotData,
-  getAdminStats
+  getAdminStats,
+  startXboxAuthFlow,
+  getXboxAuthStatus,
+  unlinkXboxAuth
 } = require('./botManager');
 
 const { startExpiryCron } = require('./expiryCron');
@@ -430,6 +433,43 @@ app.post('/api/bot/disconnect', requireAuth, (req, res) => {
 
   const result = stopBotForUser(targetUser);
   res.json(result);
+});
+
+// مسارات ربط حساب Xbox الرسمي (Official Xbox Live Auth)
+app.post('/api/xbox/start', requireAuth, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+  try {
+    const result = await startXboxAuthFlow(targetUser);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/xbox/status', requireAuth, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.query.targetUser)
+    ? req.query.targetUser
+    : req.session.user.username;
+  try {
+    const status = await getXboxAuthStatus(targetUser);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/xbox/unlink', requireAuth, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+  try {
+    const result = await unlinkXboxAuth(targetUser);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // تحريك البوت

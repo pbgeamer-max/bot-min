@@ -375,13 +375,38 @@
               </div>
             </div>
 
-            <!-- 2. اسم البوت / الحساب -->
+            <!-- 2. بطاقة تسجيل الدخول بحساب Xbox الرسمي -->
+            <div id="xboxAuthCard" class="xbox-auth-card glass-panel-sub">
+              <div class="xbox-auth-left">
+                <div class="xbox-auth-icon">
+                  <i class="fa-brands fa-xbox"></i>
+                </div>
+                <div class="xbox-auth-details">
+                  <strong id="xboxAuthTitle">ربط حساب إكسبوكس الرسمي (Xbox Live)</strong>
+                  <p id="xboxAuthSubtitle">سجّل دخولك بحساب إكسبوكس لمرة واحدة فقط ليعمل البوت تلقائياً للأبد.</p>
+                </div>
+              </div>
+              <div class="xbox-auth-right">
+                <button type="button" id="xboxLoginBtn" class="btn btn-xbox">
+                  <i class="fa-brands fa-xbox"></i>
+                  <span>تسجيل الدخول بحساب Xbox</span>
+                </button>
+                <div id="xboxLinkedBadge" class="xbox-linked-badge hidden">
+                  <span class="badge-status"><i class="fa-solid fa-circle-check"></i> متصل بحساب: <strong id="xboxGamertagText">Player</strong></span>
+                  <button type="button" id="xboxUnlinkBtn" class="btn-link-danger" title="إلغاء الربط أو تبديل الحساب">
+                    <i class="fa-solid fa-right-from-bracket"></i> تبديل الحساب
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. اسم البوت / الحساب -->
             <div class="form-row">
               <div class="input-group flex-1">
                 <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (GamerTag أو اسم الحساب) *</label>
                 <input type="text" id="botUsername" placeholder="مثال: DonutAFK_Bot">
                 <small style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
-                  * عند أول تشغيل، ستضغط على زر تأكيد حساب إكسبوكس لمرة واحدة فقط دون كتابة أي كود، ويتم حفظه تلقائياً للأبد.
+                  * يتم تعبئة اسم الحساب تلقائياً بعد الضغط على زر تسجيل الدخول بحساب Xbox.
                 </small>
               </div>
             </div>

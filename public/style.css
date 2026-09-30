@@ -434,6 +434,124 @@ body {
   align-items: center;
 }
 
+/* Xbox Auth Dedicated Card */
+.xbox-auth-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(16, 124, 16, 0.14), rgba(6, 78, 59, 0.22));
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.xbox-auth-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.xbox-auth-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(16, 124, 16, 0.25);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: #4ade80;
+  box-shadow: 0 4px 15px rgba(16, 124, 16, 0.25);
+}
+
+.xbox-auth-details strong {
+  display: block;
+  font-size: 14px;
+  color: #f1f5f9;
+  font-weight: 700;
+}
+
+.xbox-auth-details p {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.btn-xbox {
+  background: linear-gradient(135deg, #107c10, #15803d);
+  color: #fff;
+  border: 1px solid #22c55e;
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 15px rgba(16, 124, 16, 0.4);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.btn-xbox:hover {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-xbox:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.xbox-linked-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.badge-status {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  color: #4ade80;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge-status strong {
+  color: #fff;
+}
+
+.btn-link-danger {
+  background: none;
+  border: none;
+  color: #f87171;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s;
+}
+
+.btn-link-danger:hover {
+  color: #ef4444;
+}
+
+
 /* Quick Presets Bar */
 .presets-bar {
   display: flex;

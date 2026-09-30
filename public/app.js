@@ -86,6 +86,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const msaDirectLink = document.getElementById('msaDirectLink');
   const copyMsaCodeBtn = document.getElementById('copyMsaCodeBtn');
 
+  // Official Xbox Auth Elements
+  const xboxAuthCard = document.getElementById('xboxAuthCard');
+  const xboxLoginBtn = document.getElementById('xboxLoginBtn');
+  const xboxLinkedBadge = document.getElementById('xboxLinkedBadge');
+  const xboxGamertagText = document.getElementById('xboxGamertagText');
+  const xboxUnlinkBtn = document.getElementById('xboxUnlinkBtn');
+  const xboxAuthSubtitle = document.getElementById('xboxAuthSubtitle');
+
   // Dashboard Controls & Form
   const botConnectForm = document.getElementById('botConnectForm');
   const botEditionSelect = document.getElementById('botEdition');
@@ -321,6 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     fetchBotStatus();
+    checkXboxAuthStatus();
     if (!pollInterval) {
       pollInterval = setInterval(fetchBotStatus, 2000);
     }
@@ -975,6 +984,100 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // ----------------------------------------
+  // نظام تسجيل الدخول الرسمي بحساب Xbox Live
+  // ----------------------------------------
+  let xboxPollingTimer = null;
+
+  async function checkXboxAuthStatus() {
+    try {
+      const res = await fetch('/api/xbox/status');
+      const data = await res.json();
+      if (!data.success) return false;
+
+      if (data.isLinked) {
+        if (xboxLinkedBadge) xboxLinkedBadge.classList.remove('hidden');
+        if (xboxLoginBtn) xboxLoginBtn.classList.add('hidden');
+        if (xboxGamertagText) xboxGamertagText.textContent = data.gamertag || 'حساب إكسبوكس';
+        if (xboxAuthSubtitle) xboxAuthSubtitle.textContent = 'حسابك مربوط وجاهز للاتصال المباشر بالسيرفر.';
+        if (data.gamertag && botUsernameInput && (!botUsernameInput.value || botUsernameInput.value.startsWith('AFK_'))) {
+          botUsernameInput.value = data.gamertag;
+        }
+        return true;
+      } else {
+        if (xboxLinkedBadge) xboxLinkedBadge.classList.add('hidden');
+        if (xboxLoginBtn) {
+          xboxLoginBtn.classList.remove('hidden');
+          xboxLoginBtn.disabled = false;
+          xboxLoginBtn.innerHTML = '<i class="fa-brands fa-xbox"></i> <span>تسجيل الدخول بحساب Xbox</span>';
+        }
+        if (xboxAuthSubtitle) xboxAuthSubtitle.textContent = 'سجّل دخولك بحساب إكسبوكس لمرة واحدة فقط ليعمل البوت تلقائياً للأبد.';
+        return false;
+      }
+    } catch (err) {
+      return false;
+    }
+  }
+
+  if (xboxLoginBtn) {
+    xboxLoginBtn.addEventListener('click', async () => {
+      try {
+        xboxLoginBtn.disabled = true;
+        xboxLoginBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>جاري تجهيز مايكروسوفت...</span>';
+
+        const res = await fetch('/api/xbox/start', { method: 'POST' });
+        const data = await res.json();
+
+        if (!data.success || !data.directUrl) {
+          alert(data.message || 'حدث خطأ أثناء بدء تسجيل الدخول لمايكروسوفت!');
+          xboxLoginBtn.disabled = false;
+          xboxLoginBtn.innerHTML = '<i class="fa-brands fa-xbox"></i> <span>تسجيل الدخول بحساب Xbox</span>';
+          return;
+        }
+
+        // فتح نافذة منبثقة رسمية لمايكروسوفت مع تعبئة الكود تلقائياً
+        const popup = window.open(data.directUrl, 'xboxAuthWindow', 'width=540,height=680,left=250,top=100');
+
+        xboxLoginBtn.innerHTML = '<i class="fa-solid fa-clock"></i> <span>بانتظار موافقتك في مايكروسوفت...</span>';
+
+        if (xboxPollingTimer) clearInterval(xboxPollingTimer);
+        xboxPollingTimer = setInterval(async () => {
+          const isLinked = await checkXboxAuthStatus();
+          if (isLinked) {
+            clearInterval(xboxPollingTimer);
+            xboxPollingTimer = null;
+            if (popup && !popup.closed) {
+              try { popup.close(); } catch (e) {}
+            }
+            alert('🎉 تم تسجيل الدخول وربط حساب إكسبوكس بنجاح! أصبح بإمكانك تشغيل البوت فوراً.');
+          }
+        }, 1500);
+
+      } catch (err) {
+        alert('حدث خطأ في الاتصال بالخادم!');
+        xboxLoginBtn.disabled = false;
+        xboxLoginBtn.innerHTML = '<i class="fa-brands fa-xbox"></i> <span>تسجيل الدخول بحساب Xbox</span>';
+      }
+    });
+  }
+
+  if (xboxUnlinkBtn) {
+    xboxUnlinkBtn.addEventListener('click', async () => {
+      if (!confirm('هل تريد بالتأكيد تسجيل الخروج وإلغاء ربط هذا الحساب؟')) return;
+      try {
+        const res = await fetch('/api/xbox/unlink', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          await checkXboxAuthStatus();
+          alert('تم إلغاء ربط حساب Xbox بنجاح.');
+        }
+      } catch (err) {
+        alert('حدث خطأ أثناء إلغاء الربط.');
+      }
+    });
+  }
+
 
   function updateUptimeDisplay() {
     if (statusText.textContent.includes('متصل (Online)')) {

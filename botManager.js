@@ -12,6 +12,17 @@ try {
   console.warn('[BotManager] bedrock-protocol could not be loaded:', e.message);
 }
 
+let Authflow = null;
+let Titles = null;
+try {
+  const pAuth = require('prismarine-auth');
+  Authflow = pAuth.Authflow;
+  Titles = pAuth.Titles;
+} catch (e) {
+  console.warn('[BotManager] prismarine-auth could not be loaded:', e.message);
+}
+
+
 // دوال مساعدة لنسخ واسترجاع جلسات التوثيق الدائمة لحسابات إكسبوكس
 async function backupAuthCache(userId, authType, folderPath) {
   try {
@@ -721,6 +732,126 @@ function stopAllBots() {
   return { success: true, count, message: `تم إيقاف ${count} بوت/بوتات شغالة بنجاح.` };
 }
 
+// 13. إدارة جلسات تسجيل الدخول الرسمي بحساب Xbox
+const pendingXboxAuths = new Map();
+
+async function startXboxAuthFlow(userId) {
+  const cleanId = userId.trim().toLowerCase();
+  const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${cleanId}`);
+  if (!fs.existsSync(bedrockAuthFolder)) {
+    fs.mkdirSync(bedrockAuthFolder, { recursive: true });
+  }
+
+  if (pendingXboxAuths.has(cleanId)) {
+    const existing = pendingXboxAuths.get(cleanId);
+    if (existing.status === 'pending' && existing.expiresAt > Date.now()) {
+      return { success: true, ...existing };
+    }
+  }
+
+  const authData = {
+    userId: cleanId,
+    code: null,
+    directUrl: null,
+    expiresAt: null,
+    status: 'pending',
+    gamertag: null
+  };
+  pendingXboxAuths.set(cleanId, authData);
+
+  if (!Authflow || !Titles) {
+    throw new Error('حزمة التوثيق prismarine-auth غير متوفرة في النظام');
+  }
+
+  const flow = new Authflow('XboxPlayer', bedrockAuthFolder, {
+    authTitle: Titles.MinecraftNintendoSwitch,
+    deviceType: 'Nintendo',
+    flow: 'live'
+  }, (data) => {
+    const code = data.user_code || data.userCode;
+    const directUrl = `https://microsoft.com/link?otc=${code}`;
+    authData.code = code;
+    authData.directUrl = directUrl;
+    authData.expiresAt = Date.now() + ((data.expires_in || 900) * 1000);
+  });
+
+  // تشغيل طلب التوكن في الخلفية
+  flow.getXboxToken().then(async (xsts) => {
+    authData.status = 'success';
+    try {
+      if (xsts && xsts.DisplayClaims && xsts.DisplayClaims.xui && xsts.DisplayClaims.xui[0]) {
+        authData.gamertag = xsts.DisplayClaims.xui[0].gtg || null;
+      }
+    } catch (e) {}
+    await backupAuthCache(cleanId, 'bedrock', bedrockAuthFolder);
+  }).catch((err) => {
+    authData.status = 'error';
+    authData.error = err.message || String(err);
+  });
+
+  // انتظار توليد الرابط والكود من مايكروسوفت
+  for (let i = 0; i < 25; i++) {
+    if (authData.code) break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  return {
+    success: true,
+    code: authData.code,
+    directUrl: authData.directUrl,
+    expiresAt: authData.expiresAt
+  };
+}
+
+async function getXboxAuthStatus(userId) {
+  const cleanId = userId.trim().toLowerCase();
+  const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${cleanId}`);
+  await restoreAuthCache(cleanId, 'bedrock', bedrockAuthFolder);
+
+  let isLinked = false;
+  let gamertag = null;
+
+  if (fs.existsSync(bedrockAuthFolder)) {
+    const files = fs.readdirSync(bedrockAuthFolder);
+    const hasLive = files.some(f => f.includes('live-cache.json'));
+    const hasXbl = files.some(f => f.includes('xbl-cache.json'));
+    if (hasLive && hasXbl) {
+      isLinked = true;
+      try {
+        const xblFile = files.find(f => f.includes('xbl-cache.json'));
+        if (xblFile) {
+          const content = JSON.parse(fs.readFileSync(path.join(bedrockAuthFolder, xblFile), 'utf8'));
+          if (content && content.data && content.data.DisplayClaims && content.data.DisplayClaims.xui && content.data.DisplayClaims.xui[0]) {
+            gamertag = content.data.DisplayClaims.xui[0].gtg;
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  const pending = pendingXboxAuths.get(cleanId);
+  const isPending = pending && pending.status === 'pending' && pending.expiresAt > Date.now();
+
+  return {
+    isLinked,
+    gamertag: gamertag || (pending && pending.gamertag ? pending.gamertag : null),
+    pending: isPending ? { code: pending.code, directUrl: pending.directUrl } : null
+  };
+}
+
+async function unlinkXboxAuth(userId) {
+  const cleanId = userId.trim().toLowerCase();
+  const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${cleanId}`);
+  if (fs.existsSync(bedrockAuthFolder)) {
+    try {
+      fs.rmSync(bedrockAuthFolder, { recursive: true, force: true });
+    } catch (e) {}
+  }
+  await saveAuthCache(cleanId, 'bedrock', {});
+  pendingXboxAuths.delete(cleanId);
+  return { success: true, message: 'تم إلغاء ربط حساب Xbox بنجاح.' };
+}
+
 module.exports = {
   startBotForUser,
   stopBotForUser,
@@ -730,6 +861,9 @@ module.exports = {
   sendBotChat,
   getUserBotStatus,
   getOrCreateUserBotData,
-  getAdminStats
+  getAdminStats,
+  startXboxAuthFlow,
+  getXboxAuthStatus,
+  unlinkXboxAuth
 };
 

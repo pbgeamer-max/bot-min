@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minecraft AFK Bot | لوحة التحكم الذكية</title>
+  <title>Minecraft AFK SaaS | منصة تأجير البوتات</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
@@ -12,18 +12,30 @@
 </head>
 <body>
 
-  <!-- ==================== SHIELD LOG-IN MODAL / GATE ==================== -->
+  <!-- ==================== SHIELD LOG-IN & REGISTER GATE ==================== -->
   <div id="loginGate" class="login-gate-overlay">
     <div class="login-card glass-panel">
       <div class="login-header">
         <div class="brand-logo">
           <i class="fa-solid fa-robot"></i>
         </div>
-        <h2>Minecraft AFK Bot</h2>
-        <p>يرجى إدخال كلمة المرور للوصول إلى لوحة التحكم</p>
+        <h2>منصة تأجير بوتات AFK</h2>
+        <p>خدمة تأجير بوتات DonutSMP باشتراكات أسبوعية وشهرية</p>
       </div>
 
-      <form id="loginForm" class="login-form">
+      <!-- Auth Tabs: Login vs Register with Code -->
+      <div class="auth-tabs">
+        <button type="button" id="tabLoginBtn" class="auth-tab active">تسجيل الدخول</button>
+        <button type="button" id="tabRegisterBtn" class="auth-tab">حساب جديد / كود اشتراك</button>
+      </div>
+
+      <!-- 1. Login Form -->
+      <form id="loginForm" class="auth-form">
+        <div class="input-group">
+          <label for="loginUsername"><i class="fa-solid fa-user"></i> اسم المستخدم (أو admin)</label>
+          <input type="text" id="loginUsername" placeholder="أدخل اسم المستخدم..." required autocomplete="username">
+        </div>
+
         <div class="input-group">
           <label for="loginPassword"><i class="fa-solid fa-lock"></i> كلمة المرور</label>
           <input type="password" id="loginPassword" placeholder="أدخل كلمة المرور..." required autocomplete="current-password">
@@ -31,22 +43,50 @@
 
         <div id="loginError" class="alert-box error hidden">
           <i class="fa-solid fa-triangle-exclamation"></i>
-          <span id="loginErrorMsg">كلمة المرور غير صحيحة!</span>
+          <span id="loginErrorMsg">اسم المستخدم أو كلمة المرور غير صحيحة!</span>
         </div>
 
         <button type="submit" id="loginBtn" class="btn btn-primary btn-block">
-          <span>دخول اللوحة</span>
+          <span>دخول لوحة التحكم</span>
           <i class="fa-solid fa-arrow-left"></i>
         </button>
       </form>
 
+      <!-- 2. Register Form with License Key -->
+      <form id="registerForm" class="auth-form hidden">
+        <div class="input-group">
+          <label for="regUsername"><i class="fa-solid fa-user-plus"></i> اختر اسم مستخدم</label>
+          <input type="text" id="regUsername" placeholder="مثال: gamer123" required>
+        </div>
+
+        <div class="input-group">
+          <label for="regPassword"><i class="fa-solid fa-key"></i> كلمة المرور</label>
+          <input type="password" id="regPassword" placeholder="اختر كلمة مرور قوية..." required>
+        </div>
+
+        <div class="input-group">
+          <label for="regLicenseKey"><i class="fa-solid fa-ticket"></i> كود الاشتراك (اختياري - لتفعيل 7 أيام فوراً)</label>
+          <input type="text" id="regLicenseKey" placeholder="مثال: F1-7D-XXXX-YYYY">
+        </div>
+
+        <div id="regError" class="alert-box error hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="regErrorMsg">خطأ في التسجيل!</span>
+        </div>
+
+        <button type="submit" id="registerBtn" class="btn btn-success btn-block">
+          <span>إنشاء الحساب وتفعيل الاشتراك</span>
+          <i class="fa-solid fa-check"></i>
+        </button>
+      </form>
+
       <div class="login-footer">
-        <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026</p>
+        <p>اشتراك أسبوعي: <strong>40,000 د.ع</strong> | سيرفرات DonutSMP 24/7</p>
       </div>
     </div>
   </div>
 
-  <!-- ==================== MAIN DASHBOARD (HIDDEN UNTIL AUTH) ==================== -->
+  <!-- ==================== MAIN DASHBOARD ==================== -->
   <div id="mainDashboard" class="dashboard-wrapper hidden">
     <!-- Navbar / Top Header -->
     <header class="top-navbar glass-panel">
@@ -56,15 +96,29 @@
             <i class="fa-solid fa-cubes"></i>
           </div>
           <div>
-            <h1>لوحة تحكم البوت الذكي</h1>
-            <span class="sub-title">DonutSMP & Premium / Aternos AFK Manager</span>
+            <h1>لوحة تحكم البوت المستقل</h1>
+            <span class="sub-title">DonutSMP AFK Manager (SaaS Edition)</span>
           </div>
         </div>
 
         <div class="nav-actions">
+          <!-- Subscription Countdown Badge -->
+          <div id="subCountdownBadge" class="sub-badge active">
+            <i class="fa-solid fa-clock"></i>
+            <span id="subCountdownText">متبقي على اشتراكك: 7 أيام</span>
+          </div>
+
+          <!-- Admin Portal Trigger Button (Visible only for admin) -->
+          <button id="openAdminBtn" class="btn btn-outline-secondary hidden">
+            <i class="fa-solid fa-crown"></i>
+            <span>لوحة الإدارة والأرباح</span>
+          </button>
+
+          <!-- User Info & Logout -->
+          <span id="loggedUserDisplay" class="user-pill"><i class="fa-solid fa-user-check"></i> <span id="userNameSpan">--</span></span>
           <button id="logoutBtn" class="btn btn-outline-danger">
             <i class="fa-solid fa-right-from-bracket"></i>
-            <span>تسجيل الخروج</span>
+            <span>خروج</span>
           </button>
         </div>
       </div>
@@ -73,7 +127,26 @@
     <!-- Main Content Area -->
     <main class="container main-content">
 
-      <!-- Microsoft Auth Notification Banner (Displays when device code is emitted) -->
+      <!-- EXPIRED SUBSCRIPTION OVERLAY (Blocks controls when 7 days end) -->
+      <div id="expiredOverlay" class="expired-lock-card glass-panel hidden">
+        <div class="lock-icon"><i class="fa-solid fa-lock"></i></div>
+        <h2>عذراً، انتهت مدة اشتراكك الأسبوعي!</h2>
+        <p>لقد انقضت مدة الـ 7 أيام وتم إيقاف البوت وفصله تلقائياً لحين تجديد الاشتراك.</p>
+        <div class="redeem-box">
+          <label for="renewKeyInput">أدخل كود الاشتراك الجديد (40,000 د.ع / 7 أيام):</label>
+          <div class="redeem-input-row">
+            <input type="text" id="renewKeyInput" placeholder="أدخل الكود: F1-7D-XXXX-YYYY">
+            <button type="button" id="renewKeyBtn" class="btn btn-success">
+              <i class="fa-solid fa-unlock"></i> تفعيل فوري
+            </button>
+          </div>
+        </div>
+        <div class="contact-admin-hint">
+          <p><i class="fa-brands fa-whatsapp"></i> لتجديد الاشتراك وتحويل 40,000 د.ع عبر زين كاش، تواصل مع صاحب المنصة.</p>
+        </div>
+      </div>
+
+      <!-- Microsoft Auth Notification Banner -->
       <div id="msaBanner" class="alert-banner-msa hidden">
         <div class="msa-banner-content">
           <div class="msa-icon"><i class="fa-brands fa-microsoft"></i></div>
@@ -98,7 +171,7 @@
 
       <!-- Quick Server Presets Bar -->
       <div class="presets-bar glass-panel">
-        <span class="presets-title"><i class="fa-solid fa-bolt"></i> إعدادات سريعة للسيرفرات:</span>
+        <span class="presets-title"><i class="fa-solid fa-bolt"></i> إعدادات سريعة لسيرفرات DonutSMP:</span>
         <div class="presets-buttons">
           <button type="button" class="preset-btn" data-preset="donutsmp">
             <i class="fa-solid fa-cookie-bite"></i> DonutSMP (US)
@@ -135,7 +208,7 @@
               <span id="activeUsername" class="metric-value">--</span>
             </div>
             <div class="metric-item">
-              <span class="metric-label">نوع الحساب:</span>
+              <span class="metric-label">نوع التوثيق:</span>
               <span id="activeAuth" class="metric-value badge-auth">--</span>
             </div>
             <div class="metric-item">
@@ -232,14 +305,14 @@
         <!-- 3. Connection Form Card -->
         <div class="card glass-panel form-card">
           <div class="card-header">
-            <h3><i class="fa-solid fa-sliders"></i> إعدادات الاتصال بالسيرفر</h3>
+            <h3><i class="fa-solid fa-sliders"></i> إعدادات الاتصال بسيرفر DonutSMP</h3>
           </div>
 
           <form id="botConnectForm" class="bot-form">
             <div class="form-row">
               <div class="input-group flex-2">
                 <label for="serverHost"><i class="fa-solid fa-network-wired"></i> عنوان السيرفر (IP / Domain) *</label>
-                <input type="text" id="serverHost" placeholder="مثال: donutsmp.net أو EU.donutsmp.net" required>
+                <input type="text" id="serverHost" placeholder="مثال: donutsmp.net أو EU.donutsmp.net" value="donutsmp.net" required>
               </div>
               <div class="input-group flex-1">
                 <label for="serverPort"><i class="fa-solid fa-plug"></i> البورت (Port)</label>
@@ -250,11 +323,11 @@
             <div class="form-row">
               <div class="input-group flex-1">
                 <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (أو بريد مايكروسوفت)</label>
-                <input type="text" id="botUsername" placeholder="AFK_Bot أو بريد الحساب" value="AFK_Bot" required>
+                <input type="text" id="botUsername" placeholder="AFK_Bot" required>
               </div>
               <div class="input-group flex-1">
-                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري للسيرفرات المكركة)</label>
-                <input type="password" id="authPassword" placeholder="كلمة مرور التسجيل داخل السيرفر">
+                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري)</label>
+                <input type="password" id="authPassword" placeholder="كلمة مرور السيرفر المكرك">
               </div>
             </div>
 
@@ -263,7 +336,7 @@
                 <label for="authMode"><i class="fa-solid fa-shield-halved"></i> نوع المصادقة (Auth)</label>
                 <select id="authMode">
                   <option value="microsoft">حساب أصلي رسمي (Microsoft - لسيرفرات DonutSMP)</option>
-                  <option value="offline">سيرفر مكرك (Offline / Cracked - لـ Aternos)</option>
+                  <option value="offline">سيرفر مكرك (Offline / Cracked)</option>
                 </select>
               </div>
 
@@ -275,17 +348,14 @@
                   <option value="1.20.2">1.20.2</option>
                   <option value="1.20.1">1.20.1</option>
                   <option value="1.19.4">1.19.4</option>
-                  <option value="1.18.2">1.18.2</option>
-                  <option value="1.16.5">1.16.5</option>
                 </select>
               </div>
             </div>
 
-            <!-- Auto Command row for DonutSMP / Realm joining -->
             <div class="form-row">
               <div class="input-group flex-2">
-                <label for="autoCommandInput"><i class="fa-solid fa-terminal"></i> أمر تلقائي بعد الدخول (مثل /smp لدخول سيرفر DonutSMP)</label>
-                <input type="text" id="autoCommandInput" placeholder="مثال: /smp أو /join أو فارغ">
+                <label for="autoCommandInput"><i class="fa-solid fa-terminal"></i> أمر تلقائي لدخول الـ SMP بعد الدخول للوبي</label>
+                <input type="text" id="autoCommandInput" placeholder="/smp" value="/smp">
               </div>
               <div class="input-group flex-1">
                 <label for="autoCommandDelayInput"><i class="fa-solid fa-clock"></i> التأخير (بالثواني)</label>
@@ -296,7 +366,7 @@
             <div class="form-actions">
               <button type="submit" id="connectBtn" class="btn btn-success">
                 <i class="fa-solid fa-play"></i>
-                <span>بدء الاتصال (Connect)</span>
+                <span>بدء تشغيل البوت (Connect)</span>
               </button>
               <button type="button" id="disconnectBtn" class="btn btn-danger">
                 <i class="fa-solid fa-stop"></i>
@@ -312,7 +382,7 @@
       <div class="card glass-panel terminal-card">
         <div class="card-header terminal-header">
           <div>
-            <h3><i class="fa-solid fa-terminal"></i> سجل الرسائل المباشر (Live Console)</h3>
+            <h3><i class="fa-solid fa-terminal"></i> سجل الأحداث والشات المباشر</h3>
             <span class="sub-text">متابعة رسائل السيرفر، أوامر الحركة، والتحكم المباشر بالشات</span>
           </div>
           <button id="clearLogsBtn" class="btn btn-sm btn-outline-secondary">
@@ -324,7 +394,7 @@
           <div class="log-entry system">
             <span class="log-time">[00:00:00]</span>
             <span class="log-type">[SYSTEM]</span>
-            <span class="log-msg">جاري تحميل السجلات من لوحة التحكم...</span>
+            <span class="log-msg">جاري تحميل السجلات الخاصة ببوتك...</span>
           </div>
         </div>
 
@@ -343,11 +413,76 @@
 
     </main>
 
+    <!-- ==================== ADMIN SUPER-PANEL MODAL ==================== -->
+    <div id="adminModal" class="modal-overlay hidden">
+      <div class="modal-card glass-panel">
+        <div class="modal-header">
+          <h2><i class="fa-solid fa-crown text-yellow"></i> لوحة إدارة المشتركين والأرباح</h2>
+          <button type="button" id="closeAdminBtn" class="close-btn">&times;</button>
+        </div>
+
+        <div class="admin-stats-grid">
+          <div class="stat-card">
+            <span class="stat-num" id="adminTotalRevenue">0 د.ع</span>
+            <span class="stat-desc">إجمالي الأرباح المستلمة</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="adminActiveSubs">0</span>
+            <span class="stat-desc">الاشتراكات النشطة حالياً</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="adminConnectedBots">0</span>
+            <span class="stat-desc">البوتات المتصلة الآن بالسيرفر</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="adminDbStatus">Firebase 🟢</span>
+            <span class="stat-desc">حالة قاعدة البيانات</span>
+          </div>
+        </div>
+
+        <div class="admin-actions-bar">
+          <button type="button" id="generateKeyBtn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> توليد كود اشتراك جديد (40,000 د.ع / 7 أيام)
+          </button>
+        </div>
+
+        <!-- Latest Generated Key Notification -->
+        <div id="generatedKeyBox" class="alert-box success hidden">
+          <i class="fa-solid fa-ticket"></i>
+          <div>
+            <span>تم توليد كود اشتراك بنجاح:</span>
+            <strong id="newKeyDisplay" class="font-mono">F1-7D-XXXX-YYYY</strong>
+          </div>
+        </div>
+
+        <!-- Subscriptions Table -->
+        <div class="admin-table-wrapper">
+          <h3>قائمة المشتركين ومؤقتات الانتهاء:</h3>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>المشترك</th>
+                <th>الحالة</th>
+                <th>المتبقي</th>
+                <th>تاريخ الانتهاء</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="adminSubsTableBody">
+              <tr>
+                <td colspan="5" class="text-center">جاري تحميل بيانات المشتركين...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- Footer -->
     <footer class="main-footer">
       <div class="container footer-content">
-        <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026</p>
-        <span class="footer-badge"><i class="fa-solid fa-bolt"></i> DonutSMP Pathfinder & Express Edition</span>
+        <p>جميع الحقوق محفوظة <strong>f1</strong> &copy; 2026 | خدمة تأجير بوتات DonutSMP</p>
+        <span class="footer-badge"><i class="fa-solid fa-shield-halved"></i> Powered by Firebase & Mineflayer</span>
       </div>
     </footer>
   </div>

@@ -1,12 +1,36 @@
-const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const { GoalBlock, GoalNear } = goals;
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
 
+const {
+  isFirebaseConnected,
+  getUser,
+  createUser,
+  getSubscription,
+  createOrUpdateSubscription,
+  getAllSubscriptions,
+  createLicenseKey,
+  redeemLicenseKey,
+  getAllLicenseKeys,
+  getBotConfig,
+  saveBotConfig
+} = require('./firebase');
+
+const {
+  startBotForUser,
+  stopBotForUser,
+  goToCoordinates,
+  stopMovement,
+  sendBotChat,
+  getUserBotStatus,
+  getOrCreateUserBotData,
+  getAdminStats
+} = require('./botManager');
+
+const { startExpiryCron } = require('./expiryCron');
+
 // ==========================================
-// 1. إعدادات خادم الويب (Express Web Server & Auth)
+// 1. إعدادات خادم الويب (Express Web Server)
 // ==========================================
 const app = express();
 const WEB_PORT = process.env.WEB_PORT || process.env.PORT || 3000;
@@ -15,498 +39,218 @@ const WEB_PASSWORD = process.env.WEB_PASSWORD || 'f1bot123';
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: 'f1-minecraft-bot-secret-key-2026',
+  secret: 'f1-minecraft-bot-saas-secret-2026',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
 }));
 
 // إتاحة الملفات الإستاتيكية
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Middleware للتحقق من المصادقة للمسارات المحمية
+// ==========================================
+// 2. التحقق من المصادقة والصلاحيات (Auth Middlewares)
+// ==========================================
 function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) {
+  if (req.session && req.session.user) {
     return next();
   }
   return res.status(401).json({ error: 'Unauthorized', message: 'يرجى تسجيل الدخول أولاً' });
 }
 
-// ==========================================
-// 2. حالة البوت والسجلات (State & Logs)
-// ==========================================
-let bot = null;
-let afkInterval = null;
-let reconnectTimeout = null;
-let isReconnecting = false;
-let hasLoggedIn = false;
-let userDisconnected = false;
-
-let botStatus = 'disconnected'; // 'disconnected' | 'connecting' | 'connected'
-let connectedSince = null;
-const maxLogs = 200;
-const logs = [];
-
-function addLog(type, message) {
-  const timestamp = new Date().toLocaleTimeString('ar-EG', { hour12: false });
-  const logEntry = { timestamp, type, message };
-  logs.push(logEntry);
-  if (logs.length > maxLogs) {
-    logs.shift();
+function requireAdmin(req, res, next) {
+  if (req.session && req.session.user && req.session.user.role === 'admin') {
+    return next();
   }
-  console.log(`[${timestamp}] [${type.toUpperCase()}] ${message}`);
+  return res.status(403).json({ error: 'Forbidden', message: 'صلاحيات الأدمن فقط مطلوبة لهذه العملية' });
 }
 
-// إعدادات البوت
-let config = {
-  host: process.env.HOST || process.env.MC_HOST || 'localhost',
-  port: parseInt(process.env.MC_PORT || process.env.PORT_MC || '25565', 10),
-  username: process.env.USERNAME || process.env.BOT_USERNAME || 'AFK_Bot',
-  version: (process.env.VERSION && process.env.VERSION !== 'false' && process.env.VERSION !== 'auto') ? process.env.VERSION : false,
-  auth: process.env.AUTH || 'offline',
-  password: process.env.PASSWORD || process.env.BOT_PASSWORD || null,
-  // إعدادات الموقع والأوامر
-  targetPos: {
-    x: process.env.TARGET_X !== undefined && process.env.TARGET_X !== '' ? parseFloat(process.env.TARGET_X) : null,
-    y: process.env.TARGET_Y !== undefined && process.env.TARGET_Y !== '' ? parseFloat(process.env.TARGET_Y) : null,
-    z: process.env.TARGET_Z !== undefined && process.env.TARGET_Z !== '' ? parseFloat(process.env.TARGET_Z) : null
-  },
-  autoWalkToPos: process.env.AUTO_WALK === 'true',
-  lockPosition: process.env.LOCK_POS === 'true',
-  autoCommand: process.env.AUTO_COMMAND || '',
-  autoCommandDelay: parseInt(process.env.AUTO_COMMAND_DELAY || '7', 10)
-};
+// التأكد من سريان الاشتراك للزبون (إذا كان أدمن يتجاوز الفحص)
+async function requireActiveSub(req, res, next) {
+  const user = req.session.user;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-// معالجة الهوست والبورت إذا كانا مكتوبين معاً
-if (config.host.includes(':')) {
-  const parts = config.host.split(':');
-  config.host = parts[0];
-  config.port = parseInt(parts[1], 10) || 25565;
+  if (user.role === 'admin') {
+    return next();
+  }
+
+  const sub = await getSubscription(user.username);
+  if (!sub) {
+    return res.status(403).json({
+      error: 'NO_SUBSCRIPTION',
+      message: 'ليس لديك اشتراك نشط حالياً! يرجى شراء كود اشتراك أسبوعي أو التواصل مع الإدارة.'
+    });
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(sub.expiresAt);
+
+  if (sub.status !== 'active' || now >= expiresAt) {
+    // إيقاف البوت فوراً إذا كان شغالاً
+    stopBotForUser(user.username);
+    return res.status(403).json({
+      error: 'EXPIRED',
+      message: 'انتهت مدة اشتراكك الأسبوعي (7 أيام)! يرجى التجديد لتتمكن من تشغيل البوت والتحكم فيه.'
+    });
+  }
+
+  next();
 }
 
 // ==========================================
-// 3. إدارة البوت والاتصال (Mineflayer Lifecycle)
-// ==========================================
-function createBot() {
-  if (bot) {
-    cleanUp();
-  }
-
-  userDisconnected = false;
-  isReconnecting = false;
-  hasLoggedIn = false;
-  botStatus = 'connecting';
-
-  addLog('bot', `جاري الاتصال بالسيرفر ${config.host}:${config.port} باسم '${config.username}' (${config.auth === 'microsoft' ? 'حساب مايكروسوفت أصلي' : 'مكرك/Offline'})...`);
-
-  try {
-    const botOptions = {
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      auth: config.auth,
-      checkTimeoutInterval: 90000,
-      profilesFolder: path.join(__dirname, 'auth-cache')
-    };
-
-    if (config.version && config.version !== 'auto') {
-      botOptions.version = config.version;
-    }
-
-    if (config.auth === 'microsoft') {
-      botOptions.onMsaCode = (data) => {
-        addLog('auth', `🔐 [تسجيل مايكروسوفت] مطلوب المصادقة لمرة واحدة:`);
-        addLog('auth', `1️⃣ افتح الرابط: ${data.verification_uri}`);
-        addLog('auth', `2️⃣ أدخل الكود: ${data.user_code}`);
-        addLog('auth', `🔗 رابط مباشر: https://microsoft.com/link?otc=${data.user_code}`);
-      };
-    }
-
-    bot = mineflayer.createBot(botOptions);
-    setupBotEvents();
-  } catch (err) {
-    botStatus = 'disconnected';
-    addLog('error', `خطأ أثناء إنشاء البوت: ${err.message || err}`);
-    scheduleReconnect();
-  }
-}
-
-function parseReason(reason) {
-  if (!reason) return 'لا يوجد سبب مكتوب';
-  if (typeof reason === 'string') return reason;
-  
-  try {
-    if (reason.text) return reason.text;
-    if (reason.value && reason.value.text && reason.value.text.value) return reason.value.text.value;
-    if (reason.extra && Array.isArray(reason.extra.value)) {
-      return reason.extra.value.map(item => (typeof item === 'string' ? item : item.text || JSON.stringify(item))).join('');
-    }
-    return JSON.stringify(reason);
-  } catch (e) {
-    return String(reason);
-  }
-}
-
-function setupBotEvents() {
-  bot.once('spawn', () => {
-    botStatus = 'connected';
-    connectedSince = new Date();
-    addLog('success', `تم الاتصال بالسيرفر بنجاح باسم '${bot.username}'!`);
-
-    // تحميل إضافة الملاحة والحركة
-    try {
-      bot.loadPlugin(pathfinder);
-      addLog('bot', 'تم تفعيل نظام الملاحة الذكي (Pathfinder) لتحديد وتتبع الموقع.');
-    } catch (err) {
-      addLog('error', `تعذر تفعيل Pathfinder: ${err.message}`);
-    }
-
-    // تفعيل Anti-AFK بعد 3 ثوانٍ
-    setTimeout(() => {
-      startAntiAFK();
-    }, 3000);
-
-    // تنفيذ الأمر التلقائي إن وجد (مثل /smp في DonutSMP)
-    if (config.autoCommand && config.autoCommand.trim()) {
-      const delayMs = (config.autoCommandDelay || 7) * 1000;
-      addLog('system', `سيتم إرسال الأمر التلقائي (${config.autoCommand}) بعد ${config.autoCommandDelay || 7} ثوانٍ...`);
-      setTimeout(() => {
-        if (bot && botStatus === 'connected') {
-          bot.chat(config.autoCommand.trim());
-          addLog('chat', `[أمر تلقائي] تم إرسال: ${config.autoCommand}`);
-
-          // الانتقال التلقائي للموقع بعد الدخول لعالم السيرفر
-          if (config.autoWalkToPos && config.targetPos && config.targetPos.x !== null) {
-            setTimeout(() => {
-              goToCoordinates(config.targetPos.x, config.targetPos.y, config.targetPos.z);
-            }, 3000);
-          }
-        }
-      }, delayMs);
-    } else if (config.autoWalkToPos && config.targetPos && config.targetPos.x !== null) {
-      setTimeout(() => {
-        goToCoordinates(config.targetPos.x, config.targetPos.y, config.targetPos.z);
-      }, 4000);
-    }
-  });
-
-  // تسجيل الرسائل وتلبية طلبات AuthMe
-  bot.on('message', (jsonMsg) => {
-    try {
-      const msgStr = jsonMsg.toString();
-      if (!msgStr.trim()) return;
-
-      addLog('chat', msgStr);
-
-      if (config.password && !hasLoggedIn) {
-        const lower = msgStr.toLowerCase();
-        if (lower.includes('/register') && !lower.includes('already')) {
-          bot.chat(`/register ${config.password} ${config.password}`);
-          addLog('auth', 'تم إرسال أمر التسجيل /register');
-          hasLoggedIn = true;
-        } else if (lower.includes('/login') && !lower.includes('already')) {
-          bot.chat(`/login ${config.password}`);
-          addLog('auth', 'تم إرسال أمر تسجيل الدخول /login');
-          hasLoggedIn = true;
-        }
-      }
-    } catch (e) {}
-  });
-
-  // أحداث الملاحة والحركة
-  bot.on('goal_reached', () => {
-    addLog('success', `🎯 وصل البوت إلى المكان المحدد بنجاح!`);
-    try {
-      bot.clearControlStates();
-    } catch (e) {}
-  });
-
-  bot.on('path_reset', (reason) => {
-    if (reason === 'stuck') {
-      addLog('warn', 'عالق في المسار (Stuck)، يحاول البوت إعادة توجيه نفسه...');
-    }
-  });
-
-  bot.on('kicked', (reason) => {
-    const formattedReason = parseReason(reason);
-    botStatus = 'disconnected';
-    addLog('warn', `تم طرد البوت من السيرفر. السبب: ${formattedReason}`);
-    cleanUp();
-    scheduleReconnect();
-  });
-
-  bot.on('error', (err) => {
-    botStatus = 'disconnected';
-    addLog('error', `خطأ في اتصال البوت: ${err.message || err}`);
-    cleanUp();
-    scheduleReconnect();
-  });
-
-  bot.on('end', (reason) => {
-    botStatus = 'disconnected';
-    addLog('warn', `انقطع الاتصال بالسيرفر (${reason || 'Disconnected'}).`);
-    cleanUp();
-    scheduleReconnect();
-  });
-}
-
-// التوجه إلى إحداثيات محددة
-function goToCoordinates(x, y, z) {
-  if (!bot || botStatus !== 'connected') {
-    return { success: false, message: 'البوت غير متصل حالياً بالسيرفر' };
-  }
-  if (!bot.pathfinder) {
-    return { success: false, message: 'نظام الحركة Pathfinder غير جاهز' };
-  }
-
-  const targetX = parseFloat(x);
-  const targetY = parseFloat(y);
-  const targetZ = parseFloat(z);
-
-  if (isNaN(targetX) || isNaN(targetY) || isNaN(targetZ)) {
-    return { success: false, message: 'إحداثيات غير صحيحة، تأكد من إدخال أرقام صحيحة لـ X, Y, Z' };
-  }
-
-  try {
-    const defaultMove = new Movements(bot);
-    defaultMove.canDig = false; // عدم تكسير البلوكات
-    defaultMove.allow1by1towers = false;
-    defaultMove.canOpenDoors = true;
-    bot.pathfinder.setMovements(defaultMove);
-
-    addLog('bot', `بدء التوجه إلى الإحداثيات: X=${targetX.toFixed(1)}, Y=${targetY.toFixed(1)}, Z=${targetZ.toFixed(1)}...`);
-    const goal = new GoalNear(targetX, targetY, targetZ, 0.7);
-    bot.pathfinder.setGoal(goal);
-
-    return { success: true, message: `جاري التوجه إلى الموقع (${targetX.toFixed(1)}, ${targetY.toFixed(1)}, ${targetZ.toFixed(1)})` };
-  } catch (err) {
-    addLog('error', `خطأ أثناء الملاحة: ${err.message}`);
-    return { success: false, message: err.message };
-  }
-}
-
-// إيقاف الحركة
-function stopMovement() {
-  if (!bot || !bot.pathfinder) return false;
-  try {
-    bot.pathfinder.setGoal(null);
-    bot.clearControlStates();
-    addLog('bot', 'تم إيقاف حركة البوت.');
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-// نظام Anti-AFK الذكي مع حماية وتثبيت الموقع
-function startAntiAFK() {
-  stopAntiAFK();
-  addLog('afk', 'تم تفعيل Anti-AFK الذكي (حركات عشوائية آمنة مع تثبيت مكان الوقوف).');
-
-  afkInterval = setInterval(() => {
-    if (!bot || botStatus !== 'connected' || !bot.entity) return;
-
-    // فحص تثبيت الموقع (Lock Position)
-    if (config.lockPosition && config.targetPos && config.targetPos.x !== null) {
-      const pos = bot.entity.position;
-      const dx = pos.x - config.targetPos.x;
-      const dz = pos.z - config.targetPos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-
-      // إذا ابتعد البوت أكثر من 2 بلوك ولا يتحرك حالياً، يعود فوراً
-      if (dist > 2.0 && bot.pathfinder && !bot.pathfinder.isMoving()) {
-        addLog('warn', `تم رصد تحرك البوت بعيداً عن موقعه (${dist.toFixed(1)} بلوك)! جاري العودة للمكان المحدد...`);
-        goToCoordinates(config.targetPos.x, config.targetPos.y, config.targetPos.z);
-        return;
-      }
-    }
-
-    // إذا كان البوت يسير حالياً، لا نقاطعه بحركات
-    if (bot.pathfinder && bot.pathfinder.isMoving()) return;
-
-    // حركات Anti-AFK آمنة لا تغير مكان البوت
-    try {
-      bot.swingArm('right');
-
-      // التفات خفيف جداً وطبيعي بالرأس
-      const subtleYaw = bot.entity.yaw + (Math.random() * 0.4 - 0.2);
-      bot.look(subtleYaw, bot.entity.pitch, true);
-
-      // انحناء (Sneak) لطيف لمدة 400ms ثم النهوض
-      bot.setControlState('sneak', true);
-      setTimeout(() => {
-        if (bot) bot.setControlState('sneak', false);
-      }, 400);
-    } catch (err) {}
-  }, 20000);
-}
-
-function stopAntiAFK() {
-  if (afkInterval) {
-    clearInterval(afkInterval);
-    afkInterval = null;
-  }
-}
-
-function cleanUp() {
-  stopAntiAFK();
-  hasLoggedIn = false;
-  if (bot) {
-    try {
-      if (bot.pathfinder) {
-        bot.pathfinder.setGoal(null);
-      }
-      bot.removeAllListeners();
-      bot.end();
-    } catch (e) {}
-    bot = null;
-  }
-}
-
-function scheduleReconnect() {
-  if (userDisconnected) {
-    addLog('system', 'تم فصل الاتصال بواسطة المستخدم، لن يتم إعادة الاتصال تلقائياً.');
-    return;
-  }
-
-  if (reconnectTimeout || isReconnecting) return;
-
-  isReconnecting = true;
-  addLog('reconnect', 'سيتم محاولة إعادة الاتصال خلال 15 ثانية...');
-
-  reconnectTimeout = setTimeout(() => {
-    reconnectTimeout = null;
-    isReconnecting = false;
-    createBot();
-  }, 15000);
-}
-
-// ==========================================
-// 4. مسارات الـ API (Express Routes)
+// 3. مسارات التوثيق والحسابات (Auth Routes)
 // ==========================================
 
 // تسجيل الدخول
-app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (password === WEB_PASSWORD) {
-    req.session.authenticated = true;
-    return res.json({ success: true, message: 'تم تسجيل الدخول بنجاح' });
-  } else {
-    return res.status(401).json({ success: false, message: 'كلمة المرور غير صحيحة!' });
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال اسم المستخدم وكلمة المرور' });
   }
+
+  const cleanUser = username.trim().toLowerCase();
+  const cleanPass = password.trim();
+
+  // فحص تسجيل دخول الأدمن الرئيسي
+  if (cleanUser === 'admin' && cleanPass === WEB_PASSWORD) {
+    req.session.user = { username: 'admin', role: 'admin' };
+    return res.json({ success: true, message: 'تم تسجيل الدخول كمسؤول (Admin)', user: req.session.user });
+  }
+
+  // فحص الزبون من قاعدة البيانات
+  const user = await getUser(cleanUser);
+  if (user && user.password === cleanPass) {
+    req.session.user = { username: user.username, role: user.role || 'customer' };
+    return res.json({ success: true, message: 'تم تسجيل الدخول بنجاح', user: req.session.user });
+  }
+
+  return res.status(401).json({ success: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة!' });
+});
+
+// تسجيل حساب زبون جديد (مع إمكانية تفعيل كود فوري)
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password, licenseKey } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال اسم المستخدم وكلمة المرور' });
+  }
+
+  const cleanUser = username.trim().toLowerCase();
+  if (cleanUser.length < 3) {
+    return res.status(400).json({ success: false, message: 'يجب أن يكون اسم المستخدم 3 أحرف على الأقل' });
+  }
+
+  const existing = await getUser(cleanUser);
+  if (existing) {
+    return res.status(400).json({ success: false, message: 'اسم المستخدم هذا مستخدم مسبقاً، يرجى اختيار اسم آخر' });
+  }
+
+  const newUser = await createUser(cleanUser, password, 'customer');
+  req.session.user = { username: newUser.username, role: 'customer' };
+
+  let redeemResult = null;
+  if (licenseKey && licenseKey.trim()) {
+    redeemResult = await redeemLicenseKey(licenseKey.trim(), cleanUser);
+  }
+
+  res.json({
+    success: true,
+    message: 'تم إنشاء الحساب بنجاح!',
+    user: req.session.user,
+    redeemResult
+  });
 });
 
 // تسجيل الخروج
-app.post('/api/logout', (req, res) => {
+app.post('/api/auth/logout', (req, res) => {
   req.session.destroy();
   res.json({ success: true });
 });
 
-// التحقق من الجلسة
-app.get('/api/check-auth', (req, res) => {
-  if (req.session && req.session.authenticated) {
-    return res.json({ authenticated: true });
-  }
-  return res.json({ authenticated: false });
-});
-
-// حالة البوت والسجلات والإحداثيات اللحظية
-app.get('/api/status', requireAuth, (req, res) => {
-  let uptimeSeconds = 0;
-  if (botStatus === 'connected' && connectedSince) {
-    uptimeSeconds = Math.floor((new Date() - connectedSince) / 1000);
+// استعلام بيانات الجلسة والاشتراك الحالية
+app.get('/api/auth/me', async (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.json({ authenticated: false });
   }
 
-  // موقع البوت الحالي إن كان متصلاً
-  let currentPos = null;
-  let isMoving = false;
-  if (bot && bot.entity && bot.entity.position) {
-    currentPos = {
-      x: parseFloat(bot.entity.position.x.toFixed(2)),
-      y: parseFloat(bot.entity.position.y.toFixed(2)),
-      z: parseFloat(bot.entity.position.z.toFixed(2)),
-      yaw: parseFloat(bot.entity.yaw.toFixed(2)),
-      pitch: parseFloat(bot.entity.pitch.toFixed(2))
-    };
-    if (bot.pathfinder) {
-      isMoving = bot.pathfinder.isMoving();
+  const user = req.session.user;
+  let subscription = null;
+  let timeLeftSeconds = 0;
+
+  if (user.role === 'customer') {
+    subscription = await getSubscription(user.username);
+    if (subscription && subscription.expiresAt) {
+      const now = new Date();
+      const exp = new Date(subscription.expiresAt);
+      timeLeftSeconds = Math.max(0, Math.floor((exp - now) / 1000));
     }
   }
 
   res.json({
-    status: botStatus,
-    config: {
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      version: config.version || 'auto',
-      auth: config.auth,
-      hasPassword: !!config.password,
-      targetPos: config.targetPos,
-      autoWalkToPos: config.autoWalkToPos,
-      lockPosition: config.lockPosition,
-      autoCommand: config.autoCommand,
-      autoCommandDelay: config.autoCommandDelay
-    },
-    position: currentPos,
-    isMoving,
-    uptimeSeconds,
-    logs: logs
+    authenticated: true,
+    user,
+    subscription,
+    timeLeftSeconds,
+    isFirebase: isFirebaseConnected()
   });
 });
 
-// إرسال أمر حركة إلى إحداثيات محددة
-app.post('/api/bot/move', requireAuth, (req, res) => {
-  const { x, y, z } = req.body;
-  const result = goToCoordinates(x, y, z);
+// تفعيل كود اشتراك
+app.post('/api/subscription/redeem', requireAuth, async (req, res) => {
+  const { key } = req.body;
+  if (!key || !key.trim()) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال كود التفعيل' });
+  }
+
+  const result = await redeemLicenseKey(key.trim(), req.session.user.username);
   res.json(result);
 });
 
-// إيقاف الحركة
-app.post('/api/bot/stop-move', requireAuth, (req, res) => {
-  const stopped = stopMovement();
-  res.json({ success: stopped });
-});
+// ==========================================
+// 4. مسارات التحكم بالبوت (Bot Control Routes)
+// ==========================================
 
-// إرسال رسالة أو أمر في الشات (/smp, /home, etc.)
-app.post('/api/bot/chat', requireAuth, (req, res) => {
-  const { message } = req.body;
-  if (!bot || botStatus !== 'connected') {
-    return res.status(400).json({ success: false, message: 'البوت غير متصل بالسيرفر' });
-  }
-  if (!message || !message.trim()) {
-    return res.status(400).json({ success: false, message: 'الرسالة فارغة' });
-  }
+// جلب حالة البوت الخاص بالزبون الحالي
+app.get('/api/bot/status', requireAuth, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.query.user)
+    ? req.query.user
+    : req.session.user.username;
 
-  const cleanMsg = message.trim();
-  bot.chat(cleanMsg);
-  addLog('chat', `[أمر يدوي] ${cleanMsg}`);
-  res.json({ success: true, message: 'تم إرسال الرسالة إلى السيرفر' });
-});
+  // فحص صلاحية الاشتراك للزبون العادي
+  let isExpired = false;
+  let subscription = null;
+  let timeLeftSeconds = 0;
 
-// حفظ وتحديث إعدادات الهدف والموقع
-app.post('/api/bot/set-target', requireAuth, (req, res) => {
-  const { x, y, z, autoWalkToPos, lockPosition, autoCommand, autoCommandDelay } = req.body;
-
-  if (x !== undefined && y !== undefined && z !== undefined) {
-    config.targetPos = {
-      x: x !== null && x !== '' ? parseFloat(x) : null,
-      y: y !== null && y !== '' ? parseFloat(y) : null,
-      z: z !== null && z !== '' ? parseFloat(z) : null
-    };
+  if (req.session.user.role === 'customer') {
+    subscription = await getSubscription(targetUser);
+    if (!subscription || subscription.status !== 'active') {
+      isExpired = true;
+    } else if (subscription.expiresAt) {
+      const now = new Date();
+      const exp = new Date(subscription.expiresAt);
+      timeLeftSeconds = Math.max(0, Math.floor((exp - now) / 1000));
+      if (timeLeftSeconds <= 0) isExpired = true;
+    }
   }
 
-  if (autoWalkToPos !== undefined) config.autoWalkToPos = !!autoWalkToPos;
-  if (lockPosition !== undefined) config.lockPosition = !!lockPosition;
-  if (autoCommand !== undefined) config.autoCommand = autoCommand.trim();
-  if (autoCommandDelay !== undefined) config.autoCommandDelay = parseInt(autoCommandDelay, 10) || 7;
+  const botStatus = getUserBotStatus(targetUser);
 
-  addLog('system', 'تم حفظ وتحديث إعدادات موقع الوقوف.');
-  res.json({ success: true, targetPos: config.targetPos, autoWalkToPos: config.autoWalkToPos, lockPosition: config.lockPosition });
+  res.json({
+    ...botStatus,
+    targetUser,
+    isExpired,
+    subscription,
+    timeLeftSeconds
+  });
 });
 
-// بدء الاتصال بالسيرفر
-app.post('/api/bot/connect', requireAuth, (req, res) => {
+// تشغيل واتصال البوت
+app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
   const {
     host,
     port,
@@ -523,11 +267,7 @@ app.post('/api/bot/connect', requireAuth, (req, res) => {
     autoCommandDelay
   } = req.body;
 
-  if (!host) {
-    return res.status(400).json({ success: false, message: 'يرجى إدخال عنوان IP الخاص بالسيرفر' });
-  }
-
-  let rawHost = host.trim();
+  let rawHost = (host || 'donutsmp.net').trim();
   let rawPort = port ? parseInt(port, 10) : 25565;
 
   if (rawHost.includes(':')) {
@@ -536,74 +276,235 @@ app.post('/api/bot/connect', requireAuth, (req, res) => {
     rawPort = parseInt(parts[1], 10) || 25565;
   }
 
-  config.host = rawHost;
-  config.port = rawPort;
-  config.username = (username && username.trim()) ? username.trim() : 'AFK_Bot';
-  config.version = (version && version !== 'auto') ? version : false;
-  config.auth = auth || 'offline';
-  if (password !== undefined && password !== null) {
-    config.password = password.trim() ? password.trim() : null;
-  }
+  const botConfig = {
+    host: rawHost,
+    port: rawPort,
+    username: (username && username.trim()) ? username.trim() : `AFK_${targetUser}`,
+    version: (version && version !== 'auto') ? version : false,
+    auth: auth || 'microsoft',
+    password: password ? password.trim() : null,
+    targetPos: {
+      x: targetX !== undefined && targetX !== null && targetX !== '' ? parseFloat(targetX) : null,
+      y: targetY !== undefined && targetY !== null && targetY !== '' ? parseFloat(targetY) : null,
+      z: targetZ !== undefined && targetZ !== null && targetZ !== '' ? parseFloat(targetZ) : null
+    },
+    autoWalkToPos: !!autoWalkToPos,
+    lockPosition: !!lockPosition,
+    autoCommand: autoCommand ? autoCommand.trim() : '/smp',
+    autoCommandDelay: parseInt(autoCommandDelay || '7', 10)
+  };
 
-  // إعدادات الموقع
-  if (targetX !== undefined && targetY !== undefined && targetZ !== undefined) {
-    config.targetPos = {
-      x: targetX !== null && targetX !== '' ? parseFloat(targetX) : null,
-      y: targetY !== null && targetY !== '' ? parseFloat(targetY) : null,
-      z: targetZ !== null && targetZ !== '' ? parseFloat(targetZ) : null
+  // حفظ الإعدادات في قاعدة البيانات
+  await saveBotConfig(targetUser, botConfig);
+
+  const result = startBotForUser(targetUser, botConfig);
+  res.json(result);
+});
+
+// فصل البوت
+app.post('/api/bot/disconnect', requireAuth, (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
+  const result = stopBotForUser(targetUser);
+  res.json(result);
+});
+
+// توجيه البوت إلى إحداثيات محددة
+app.post('/api/bot/move', requireAuth, requireActiveSub, (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
+  const { x, y, z } = req.body;
+  const result = goToCoordinates(targetUser, x, y, z);
+  res.json(result);
+});
+
+// إيقاف الحركة
+app.post('/api/bot/stop-move', requireAuth, requireActiveSub, (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
+  const stopped = stopMovement(targetUser);
+  res.json({ success: stopped });
+});
+
+// إرسال شات أو أمر بالسيرفر
+app.post('/api/bot/chat', requireAuth, requireActiveSub, (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
+  const { message } = req.body;
+  const result = sendBotChat(targetUser, message);
+  res.json(result);
+});
+
+// حفظ إعدادات إحداثيات الهدف
+app.post('/api/bot/set-target', requireAuth, requireActiveSub, async (req, res) => {
+  const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
+    ? req.body.targetUser
+    : req.session.user.username;
+
+  const userData = getOrCreateUserBotData(targetUser);
+  const { x, y, z, autoWalkToPos, lockPosition, autoCommand, autoCommandDelay } = req.body;
+
+  if (x !== undefined && y !== undefined && z !== undefined) {
+    userData.config.targetPos = {
+      x: x !== null && x !== '' ? parseFloat(x) : null,
+      y: y !== null && y !== '' ? parseFloat(y) : null,
+      z: z !== null && z !== '' ? parseFloat(z) : null
     };
   }
-  if (autoWalkToPos !== undefined) config.autoWalkToPos = !!autoWalkToPos;
-  if (lockPosition !== undefined) config.lockPosition = !!lockPosition;
-  if (autoCommand !== undefined) config.autoCommand = autoCommand.trim();
-  if (autoCommandDelay !== undefined) config.autoCommandDelay = parseInt(autoCommandDelay, 10) || 7;
 
-  userDisconnected = false;
-  if (reconnectTimeout) {
-    clearTimeout(reconnectTimeout);
-    reconnectTimeout = null;
-  }
+  if (autoWalkToPos !== undefined) userData.config.autoWalkToPos = !!autoWalkToPos;
+  if (lockPosition !== undefined) userData.config.lockPosition = !!lockPosition;
+  if (autoCommand !== undefined) userData.config.autoCommand = autoCommand.trim();
+  if (autoCommandDelay !== undefined) userData.config.autoCommandDelay = parseInt(autoCommandDelay, 10) || 7;
 
-  addLog('system', 'تم استلام طلب اتصال جديد...');
-  createBot();
+  await saveBotConfig(targetUser, userData.config);
 
-  res.json({ success: true, message: 'جاري بدء اتصال البوت...' });
-});
-
-// إيقاف وفصل البوت
-app.post('/api/bot/disconnect', requireAuth, (req, res) => {
-  userDisconnected = true;
-  if (reconnectTimeout) {
-    clearTimeout(reconnectTimeout);
-    reconnectTimeout = null;
-  }
-
-  cleanUp();
-  botStatus = 'disconnected';
-  addLog('system', 'تم إيقاف البوت وفصله بناءً على طلبك.');
-
-  res.json({ success: true, message: 'تم فصل البوت بنجاح' });
+  res.json({
+    success: true,
+    message: 'تم حفظ وتحديث إعدادات الموقع.',
+    targetPos: userData.config.targetPos
+  });
 });
 
 // ==========================================
-// 5. حماية العملية وتشغيل خادم الويب
+// 5. مسارات الإدارة والأرباح (Admin Panel Routes)
+// ==========================================
+
+// الإحصائيات الشاملة
+app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+  const subscriptions = await getAllSubscriptions();
+  const botStats = getAdminStats();
+
+  let activeCount = 0;
+  let expiredCount = 0;
+  let totalRevenueIQD = 0;
+
+  const now = new Date();
+  subscriptions.forEach(sub => {
+    if (sub.status === 'active' && new Date(sub.expiresAt) > now) {
+      activeCount++;
+    } else {
+      expiredCount++;
+    }
+    if (sub.pricePaid) {
+      totalRevenueIQD += sub.pricePaid;
+    }
+  });
+
+  res.json({
+    totalCustomers: subscriptions.length,
+    activeSubscriptions: activeCount,
+    expiredSubscriptions: expiredCount,
+    totalRevenueIQD,
+    connectedBots: botStats.connectedBots,
+    isFirebase: isFirebaseConnected()
+  });
+});
+
+// جلب قائمة المشتركين وتواريخ الانتهاء
+app.get('/api/admin/subscriptions', requireAdmin, async (req, res) => {
+  const subscriptions = await getAllSubscriptions();
+  const now = new Date();
+
+  const formatted = subscriptions.map(sub => {
+    const exp = new Date(sub.expiresAt);
+    const secondsLeft = Math.max(0, Math.floor((exp - now) / 1000));
+    const daysLeft = (secondsLeft / 86400).toFixed(1);
+    const isActive = sub.status === 'active' && secondsLeft > 0;
+
+    return {
+      ...sub,
+      isActive,
+      secondsLeft,
+      daysLeft
+    };
+  });
+
+  res.json({ subscriptions: formatted });
+});
+
+// إنشاء اشتراك مباشر للزبون بعد استلام 40 ألف دينار
+app.post('/api/admin/subscriptions/create', requireAdmin, async (req, res) => {
+  const { username, password, days, pricePaid } = req.body;
+
+  if (!username) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال اسم المستخدم' });
+  }
+
+  const cleanUser = username.trim().toLowerCase();
+  let user = await getUser(cleanUser);
+
+  if (!user) {
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة مرور للحساب الجديد' });
+    }
+    user = await createUser(cleanUser, password, 'customer');
+  }
+
+  const subscriptionDays = parseInt(days || '7', 10);
+  const revenue = parseInt(pricePaid || '40000', 10);
+
+  const sub = await createOrUpdateSubscription(cleanUser, subscriptionDays, revenue);
+  res.json({ success: true, message: `تم تفعيل اشتراك المستخدم لمدة ${subscriptionDays} أيام!`, subscription: sub });
+});
+
+// تمديد اشتراك مستخدم (+7 أيام مثلاً)
+app.post('/api/admin/subscriptions/extend', requireAdmin, async (req, res) => {
+  const { username, days, pricePaid } = req.body;
+
+  if (!username) {
+    return res.status(400).json({ success: false, message: 'يرجى تحديد المستخدم' });
+  }
+
+  const addDays = parseInt(days || '7', 10);
+  const revenue = parseInt(pricePaid || '40000', 10);
+
+  const sub = await createOrUpdateSubscription(username.trim().toLowerCase(), addDays, revenue);
+  res.json({ success: true, message: `تم تمديد الاشتراك بنجاح (+${addDays} أيام)!`, subscription: sub });
+});
+
+// توليد كود اشتراك أسبوعي لبيعه للزبائن (40,000 د.ع)
+app.post('/api/admin/keys/create', requireAdmin, async (req, res) => {
+  const { days, price } = req.body;
+  const numDays = parseInt(days || '7', 10);
+  const keyPrice = parseInt(price || '40000', 10);
+
+  const newKey = await createLicenseKey(numDays, keyPrice);
+  res.json({ success: true, licenseKey: newKey });
+});
+
+// جلب قائمة أكواد الاشتراكات
+app.get('/api/admin/keys', requireAdmin, async (req, res) => {
+  const keys = await getAllLicenseKeys();
+  res.json({ keys });
+});
+
+// ==========================================
+// 6. حماية العملية وتشغيل الخادم ومحرك الفحص
 // ==========================================
 process.on('uncaughtException', (err) => {
-  addLog('error', `Uncaught Exception: ${err.message || err}`);
+  console.error(`[Process Error] Uncaught Exception:`, err.message || err);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  addLog('error', `Unhandled Rejection: ${reason}`);
+process.on('unhandledRejection', (reason) => {
+  console.error(`[Process Error] Unhandled Rejection:`, reason);
 });
 
 app.listen(WEB_PORT, () => {
   console.log(`==================================================`);
-  console.log(`[HTTP] Web Dashboard running at: http://localhost:${WEB_PORT}`);
-  console.log(`[HTTP] Protected with password (WEB_PASSWORD or default: 'f1bot123')`);
+  console.log(`[HTTP] Minecraft AFK SaaS Dashboard running at: http://localhost:${WEB_PORT}`);
+  console.log(`[HTTP] Database: ${isFirebaseConnected() ? 'Firebase Firestore (Cloud)' : 'Local JSON Fallback'}`);
+  console.log(`[HTTP] Admin user: 'admin' (password: '${WEB_PASSWORD}')`);
   console.log(`==================================================`);
-  addLog('system', `انطلق خادم الويب على المنفذ ${WEB_PORT}. جاهز للاستخدام!`);
 
-  if (config.host && config.host !== 'localhost') {
-    createBot();
-  }
+  // تشغيل محرك مراقبة انتهاء الاشتراكات
+  startExpiryCron(30);
 });

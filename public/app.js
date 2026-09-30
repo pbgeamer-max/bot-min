@@ -1,12 +1,42 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Elements
+  // Elements - Auth & Gate
   const loginGate = document.getElementById('loginGate');
+  const tabLoginBtn = document.getElementById('tabLoginBtn');
+  const tabRegisterBtn = document.getElementById('tabRegisterBtn');
   const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const loginUsernameInput = document.getElementById('loginUsername');
   const loginPasswordInput = document.getElementById('loginPassword');
   const loginErrorAlert = document.getElementById('loginError');
   const loginErrorMsg = document.getElementById('loginErrorMsg');
+  const regUsernameInput = document.getElementById('regUsername');
+  const regPasswordInput = document.getElementById('regPassword');
+  const regLicenseKeyInput = document.getElementById('regLicenseKey');
+  const regErrorAlert = document.getElementById('regError');
+  const regErrorMsg = document.getElementById('regErrorMsg');
   const mainDashboard = document.getElementById('mainDashboard');
   const logoutBtn = document.getElementById('logoutBtn');
+  const userNameSpan = document.getElementById('userNameSpan');
+
+  // Subscription & Expiry Elements
+  const subCountdownBadge = document.getElementById('subCountdownBadge');
+  const subCountdownText = document.getElementById('subCountdownText');
+  const expiredOverlay = document.getElementById('expiredOverlay');
+  const renewKeyInput = document.getElementById('renewKeyInput');
+  const renewKeyBtn = document.getElementById('renewKeyBtn');
+
+  // Admin Modal Elements
+  const openAdminBtn = document.getElementById('openAdminBtn');
+  const closeAdminBtn = document.getElementById('closeAdminBtn');
+  const adminModal = document.getElementById('adminModal');
+  const adminTotalRevenue = document.getElementById('adminTotalRevenue');
+  const adminActiveSubs = document.getElementById('adminActiveSubs');
+  const adminConnectedBots = document.getElementById('adminConnectedBots');
+  const adminDbStatus = document.getElementById('adminDbStatus');
+  const generateKeyBtn = document.getElementById('generateKeyBtn');
+  const generatedKeyBox = document.getElementById('generatedKeyBox');
+  const newKeyDisplay = document.getElementById('newKeyDisplay');
+  const adminSubsTableBody = document.getElementById('adminSubsTableBody');
 
   // Microsoft Auth Banner Elements
   const msaBanner = document.getElementById('msaBanner');
@@ -14,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const msaDirectLink = document.getElementById('msaDirectLink');
   const copyMsaCodeBtn = document.getElementById('copyMsaCodeBtn');
 
-  // Dashboard Controls & Connection Form
+  // Dashboard Controls & Form
   const botConnectForm = document.getElementById('botConnectForm');
   const serverHostInput = document.getElementById('serverHost');
   const serverPortInput = document.getElementById('serverPort');
@@ -59,8 +89,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatCommandForm = document.getElementById('chatCommandForm');
   const chatInput = document.getElementById('chatInput');
 
+  let currentUser = null;
+  let currentSubscription = null;
+  let currentTimeLeftSeconds = 0;
   let pollInterval = null;
   let uptimeInterval = null;
+  let subTimerInterval = null;
   let currentUptimeSeconds = 0;
   let autoScrollTerminal = true;
   let lastLivePosition = null;
@@ -68,12 +102,32 @@ document.addEventListener('DOMContentLoaded', () => {
   // فحص المصادقة فور فتح الصفحة
   checkAuth();
 
-  // 1. فحص التوثيق الحالي
+  // 1. التبديل بين تسجيل الدخول وإنشاء حساب
+  tabLoginBtn.addEventListener('click', () => {
+    tabLoginBtn.classList.add('active');
+    tabRegisterBtn.classList.remove('active');
+    loginForm.classList.remove('hidden');
+    registerForm.classList.add('hidden');
+    loginErrorAlert.classList.add('hidden');
+  });
+
+  tabRegisterBtn.addEventListener('click', () => {
+    tabRegisterBtn.classList.add('active');
+    tabLoginBtn.classList.remove('active');
+    registerForm.classList.remove('hidden');
+    loginForm.classList.add('hidden');
+    regErrorAlert.classList.add('hidden');
+  });
+
+  // 2. فحص التوثيق الحالي
   async function checkAuth() {
     try {
-      const res = await fetch('/api/check-auth');
+      const res = await fetch('/api/auth/me');
       const data = await res.json();
       if (data.authenticated) {
+        currentUser = data.user;
+        currentSubscription = data.subscription;
+        currentTimeLeftSeconds = data.timeLeftSeconds || 0;
         showDashboard();
       } else {
         showLoginGate();
@@ -83,24 +137,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 2. تسجيل الدخول
+  // 3. تسجيل الدخول
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const password = loginPasswordInput.value;
+    const username = loginUsernameInput.value.trim();
+    const password = loginPasswordInput.value.trim();
     loginErrorAlert.classList.add('hidden');
 
     try {
-      const res = await fetch('/api/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ username, password })
       });
       const data = await res.json();
 
       if (res.ok && data.success) {
-        showDashboard();
+        currentUser = data.user;
+        checkAuth();
       } else {
-        loginErrorMsg.textContent = data.message || 'كلمة المرور غير صحيحة!';
+        loginErrorMsg.textContent = data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة!';
         loginErrorAlert.classList.remove('hidden');
       }
     } catch (err) {
@@ -109,10 +165,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 3. تسجيل الخروج
+  // 4. إنشاء حساب زبون جديد مع كود اشتراك
+  registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = regUsernameInput.value.trim();
+    const password = regPasswordInput.value.trim();
+    const licenseKey = regLicenseKeyInput.value.trim();
+    regErrorAlert.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, licenseKey })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        currentUser = data.user;
+        checkAuth();
+      } else {
+        regErrorMsg.textContent = data.message || 'خطأ في إنشاء الحساب!';
+        regErrorAlert.classList.remove('hidden');
+      }
+    } catch (err) {
+      regErrorMsg.textContent = 'حدث خطأ في الاتصال بالخادم!';
+      regErrorAlert.classList.remove('hidden');
+    }
+  });
+
+  // 5. تسجيل الخروج
   logoutBtn.addEventListener('click', async () => {
     try {
-      await fetch('/api/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {}
     showLoginGate();
   });
@@ -122,21 +207,207 @@ document.addEventListener('DOMContentLoaded', () => {
     mainDashboard.classList.add('hidden');
     if (pollInterval) clearInterval(pollInterval);
     if (uptimeInterval) clearInterval(uptimeInterval);
+    if (subTimerInterval) clearInterval(subTimerInterval);
   }
 
   function showDashboard() {
     loginGate.classList.add('hidden');
     mainDashboard.classList.remove('hidden');
-    fetchStatus();
+
+    userNameSpan.textContent = currentUser.username;
+
+    // تمييز الأدمن
+    if (currentUser.role === 'admin') {
+      openAdminBtn.classList.remove('hidden');
+      subCountdownBadge.className = 'sub-badge active';
+      subCountdownText.textContent = '👑 حساب المسؤول (Admin)';
+      expiredOverlay.classList.add('hidden');
+    } else {
+      openAdminBtn.classList.add('hidden');
+      updateSubscriptionCountdown();
+      if (!subTimerInterval) {
+        subTimerInterval = setInterval(updateSubscriptionCountdown, 1000);
+      }
+    }
+
+    fetchBotStatus();
     if (!pollInterval) {
-      pollInterval = setInterval(fetchStatus, 2000);
+      pollInterval = setInterval(fetchBotStatus, 2000);
     }
     if (!uptimeInterval) {
       uptimeInterval = setInterval(updateUptimeDisplay, 1000);
     }
   }
 
-  // 4. السيرفرات السريعة (Presets)
+  // 6. تحديث مؤقت الاشتراك للزبون
+  function updateSubscriptionCountdown() {
+    if (!currentUser || currentUser.role === 'admin') return;
+
+    if (currentTimeLeftSeconds <= 0) {
+      subCountdownBadge.className = 'sub-badge expired';
+      subCountdownText.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> انتهى الاشتراك!';
+      expiredOverlay.classList.remove('hidden');
+      connectBtn.disabled = true;
+      goToCoordsBtn.disabled = true;
+    } else {
+      currentTimeLeftSeconds--;
+      expiredOverlay.classList.add('hidden');
+      connectBtn.disabled = false;
+      goToCoordsBtn.disabled = false;
+      subCountdownBadge.className = 'sub-badge active';
+
+      const days = Math.floor(currentTimeLeftSeconds / 86400);
+      const hours = Math.floor((currentTimeLeftSeconds % 86400) / 3600);
+      const mins = Math.floor((currentTimeLeftSeconds % 3600) / 60);
+      const secs = currentTimeLeftSeconds % 60;
+
+      if (days > 0) {
+        subCountdownText.textContent = `متبقي على اشتراكك: ${days} أيام و ${hours} ساعة`;
+      } else {
+        subCountdownText.textContent = `متبقي: ${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+      }
+    }
+  }
+
+  // 7. تفعيل كود الاشتراك من شاشة القفل
+  renewKeyBtn.addEventListener('click', async () => {
+    const key = renewKeyInput.value.trim();
+    if (!key) {
+      alert('يرجى إدخال كود التفعيل أولاً!');
+      return;
+    }
+
+    renewKeyBtn.disabled = true;
+    try {
+      const res = await fetch('/api/subscription/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        alert(data.message);
+        renewKeyInput.value = '';
+        checkAuth();
+      } else {
+        alert(data.message || 'تعذر تفعيل الكود');
+      }
+    } catch (err) {
+      alert('خطأ في الاتصال بالخادم!');
+    } finally {
+      renewKeyBtn.disabled = false;
+    }
+  });
+
+  // 8. لوحة تحكم المسؤول (Admin Modal)
+  openAdminBtn.addEventListener('click', () => {
+    adminModal.classList.remove('hidden');
+    loadAdminData();
+  });
+
+  closeAdminBtn.addEventListener('click', () => {
+    adminModal.classList.add('hidden');
+  });
+
+  async function loadAdminData() {
+    try {
+      const [resOverview, resSubs] = await Promise.all([
+        fetch('/api/admin/overview'),
+        fetch('/api/admin/subscriptions')
+      ]);
+
+      const overview = await resOverview.json();
+      const subsData = await resSubs.json();
+
+      adminTotalRevenue.textContent = `${overview.totalRevenueIQD.toLocaleString('en-US')} د.ع`;
+      adminActiveSubs.textContent = overview.activeSubscriptions;
+      adminConnectedBots.textContent = overview.connectedBots;
+      adminDbStatus.textContent = overview.isFirebase ? 'Firebase Firestore 🟢' : 'Local JSON Fallback 🟡';
+
+      renderAdminSubscriptions(subsData.subscriptions);
+    } catch (err) {
+      console.error('Error loading admin data:', err);
+    }
+  }
+
+  function renderAdminSubscriptions(subs) {
+    if (!subs || !subs.length) {
+      adminSubsTableBody.innerHTML = `<tr><td colspan="5" class="text-center">لا يوجد مشتركون حالياً</td></tr>`;
+      return;
+    }
+
+    adminSubsTableBody.innerHTML = subs.map(sub => {
+      const expDate = new Date(sub.expiresAt).toLocaleDateString('ar-EG', { dateStyle: 'medium' });
+      const statusBadgeHtml = sub.isActive
+        ? '<span class="status-badge connected">نشط</span>'
+        : '<span class="status-badge disconnected">منتهي</span>';
+
+      return `
+        <tr>
+          <td><strong>${sub.userId}</strong></td>
+          <td>${statusBadgeHtml}</td>
+          <td>${sub.isActive ? `${sub.daysLeft} يوم` : '0'}</td>
+          <td>${expDate}</td>
+          <td>
+            <button class="btn btn-sm btn-success extend-btn" data-user="${sub.userId}">
+              <i class="fa-solid fa-plus"></i> +7 أيام
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // أزرار تمديد الاشتراك
+    document.querySelectorAll('.extend-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const username = btn.dataset.user;
+        if (!confirm(`هل تريد تمديد اشتراك ${username} لمدة 7 أيام إضافية؟`)) return;
+
+        btn.disabled = true;
+        try {
+          const res = await fetch('/api/admin/subscriptions/extend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, days: 7, pricePaid: 40000 })
+          });
+          const data = await res.json();
+          if (data.success) {
+            alert(data.message);
+            loadAdminData();
+          }
+        } catch (e) {
+          alert('خطأ في تمديد الاشتراك!');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // توليد كود اشتراك أسبوعي
+  generateKeyBtn.addEventListener('click', async () => {
+    generateKeyBtn.disabled = true;
+    try {
+      const res = await fetch('/api/admin/keys/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 7, price: 40000 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        newKeyDisplay.textContent = data.licenseKey.key;
+        generatedKeyBox.classList.remove('hidden');
+        loadAdminData();
+      }
+    } catch (e) {
+      alert('خطأ أثناء توليد الكود!');
+    } finally {
+      generateKeyBtn.disabled = false;
+    }
+  });
+
+  // 9. السيرفرات السريعة (Presets)
   presetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const preset = btn.dataset.preset;
@@ -165,22 +436,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 5. جلب حالة البوت الحالية والسجلات
-  async function fetchStatus() {
+  // 10. جلب حالة البوت الحالية
+  async function fetchBotStatus() {
     try {
-      const res = await fetch('/api/status');
+      const res = await fetch('/api/bot/status');
       if (res.status === 401) {
         showLoginGate();
         return;
       }
       const data = await res.json();
+
+      if (data.isExpired) {
+        currentTimeLeftSeconds = 0;
+        updateSubscriptionCountdown();
+      } else if (data.timeLeftSeconds !== undefined) {
+        currentTimeLeftSeconds = data.timeLeftSeconds;
+      }
+
       updateUIStatus(data);
     } catch (err) {
-      console.error('Error fetching status:', err);
+      console.error('Error fetching bot status:', err);
     }
   }
 
-  // 6. تحديث الواجهة بناءً على البيانات القادمة من الـ API
+  // 11. تحديث الواجهة
   function updateUIStatus(data) {
     const { status, config, position, isMoving, uptimeSeconds, logs } = data;
 
@@ -194,7 +473,6 @@ document.addEventListener('DOMContentLoaded', () => {
       statusText.textContent = 'غير متصل (Offline)';
     }
 
-    // تحديث الإحصائيات
     if (config.host) {
       targetServerSpan.textContent = `${config.host}:${config.port}`;
     } else {
@@ -204,7 +482,6 @@ document.addEventListener('DOMContentLoaded', () => {
     activeUsernameSpan.textContent = config.username || '--';
     activeAuthSpan.textContent = config.auth === 'microsoft' ? 'Microsoft رسمي' : 'Cracked مكرك';
 
-    // تحديث الإحداثيات اللحظية
     if (position) {
       lastLivePosition = position;
       currentCoordX.textContent = position.x;
@@ -226,7 +503,6 @@ document.addEventListener('DOMContentLoaded', () => {
       movingIndicator.innerHTML = '<i class="fa-solid fa-person"></i> <span>غير متصل</span>';
     }
 
-    // تحديث حقول النموذج بالقيم الحالية إن لم يكن المستخدم يعدلها
     if (document.activeElement !== serverHostInput && config.host) {
       serverHostInput.value = config.host;
     }
@@ -249,7 +525,6 @@ document.addEventListener('DOMContentLoaded', () => {
       autoCommandDelayInput.value = config.autoCommandDelay;
     }
 
-    // إعدادات إحداثيات الهدف
     if (config.targetPos) {
       if (document.activeElement !== targetXInput && config.targetPos.x !== null) {
         targetXInput.value = config.targetPos.x;
@@ -268,24 +543,17 @@ document.addEventListener('DOMContentLoaded', () => {
       lockPositionCheck.checked = !!config.lockPosition;
     }
 
-    // تحديث مدة الاتصال
     currentUptimeSeconds = uptimeSeconds || 0;
-
-    // فحص رسائل Microsoft Auth لإظهار البانر الخاص بها
     checkMsaBanner(logs);
-
-    // تحديث السجلات الحية
     renderLogs(logs);
   }
 
-  // فحص إذا كان هناك كود تسجيل حساب مايكروسوفت مطلوب
   function checkMsaBanner(logs) {
     if (!logs || !logs.length) return;
 
     let foundCode = null;
     let foundLink = 'https://microsoft.com/link';
 
-    // البحث في آخر 15 رسالة
     const recentLogs = logs.slice(-15);
     for (const log of recentLogs) {
       if (log.message.includes('otc=')) {
@@ -314,7 +582,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // نسخ كود مايكروسوفت
   copyMsaCodeBtn.addEventListener('click', () => {
     const code = msaCodeValue.textContent;
     if (code && code !== '----') {
@@ -328,7 +595,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 7. تنسيق وعرض مدة التشغيل
   function updateUptimeDisplay() {
     if (statusText.textContent.includes('متصل (Online)')) {
       currentUptimeSeconds++;
@@ -345,7 +611,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return num.toString().padStart(2, '0');
   }
 
-  // 8. عرض السجلات الحية في الـ Terminal
   function renderLogs(logs) {
     if (!logs || !logs.length) {
       terminalBody.innerHTML = `
@@ -382,8 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 9. التحكم بالإحداثيات ومكان الوقوف
-  // زر تحديد الموقع الحالي كهدف
+  // 12. التحكم بالإحداثيات
   setCurrentPosBtn.addEventListener('click', () => {
     if (!lastLivePosition) {
       alert('البوت غير متصل حالياً لجلب موقعه الحالي!');
@@ -394,7 +658,6 @@ document.addEventListener('DOMContentLoaded', () => {
     targetZInput.value = lastLivePosition.z;
   });
 
-  // زر الانتقال إلى الإحداثيات الآن
   goToCoordsBtn.addEventListener('click', async () => {
     const x = targetXInput.value;
     const y = targetYInput.value;
@@ -416,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!data.success) {
         alert(data.message || 'تعذر بدء التحرك');
       }
-      fetchStatus();
+      fetchBotStatus();
     } catch (err) {
       alert('خطأ أثناء إرسال أمر الحركة!');
     } finally {
@@ -424,17 +687,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // زر إيقاف الحركة
   stopMoveBtn.addEventListener('click', async () => {
     try {
       await fetch('/api/bot/stop-move', { method: 'POST' });
-      fetchStatus();
+      fetchBotStatus();
     } catch (err) {
       console.error(err);
     }
   });
 
-  // زر حفظ إعدادات الموقع
   savePosConfigBtn.addEventListener('click', async () => {
     const x = targetXInput.value;
     const y = targetYInput.value;
@@ -473,7 +734,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 10. إرسال أوامر الشات المباشرة (/smp, /home, etc.)
+  // 13. إرسال أوامر الشات
   chatCommandForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = chatInput.value.trim();
@@ -490,13 +751,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!data.success) {
         alert(data.message || 'تعذر إرسال الرسالة');
       }
-      fetchStatus();
+      fetchBotStatus();
     } catch (err) {
       console.error(err);
     }
   });
 
-  // 11. إرسال طلب اتصال بالبوت
+  // 14. بدء تشغيل البوت
   botConnectForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -544,23 +805,23 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
       const data = await res.json();
-      fetchStatus();
+      fetchBotStatus();
     } catch (err) {
       alert('خطأ في إرسال طلب الاتصال!');
     } finally {
       connectBtn.disabled = false;
-      connectBtn.innerHTML = '<i class="fa-solid fa-play"></i> <span>بدء الاتصال (Connect)</span>';
+      connectBtn.innerHTML = '<i class="fa-solid fa-play"></i> <span>بدء تشغيل البوت (Connect)</span>';
     }
   });
 
-  // 12. إرسال طلب فصل البوت
+  // 15. فصل البوت
   disconnectBtn.addEventListener('click', async () => {
-    if (!confirm('هل أنت متأكد من رغبتك في إيقاف وفصل البوت عن السيرفر؟')) return;
+    if (!confirm('هل أنت متأكد من رغبتك في إيقاف وفصل البوت؟')) return;
 
     disconnectBtn.disabled = true;
     try {
       await fetch('/api/bot/disconnect', { method: 'POST' });
-      fetchStatus();
+      fetchBotStatus();
     } catch (err) {
       alert('خطأ أثناء فصل البوت!');
     } finally {
@@ -568,7 +829,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 13. مسح السجل
+  // 16. مسح السجل
   clearLogsBtn.addEventListener('click', () => {
     terminalBody.innerHTML = `
       <div class="log-entry system">

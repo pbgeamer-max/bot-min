@@ -4,14 +4,20 @@ const path = require('path');
 
 const {
   isFirebaseConnected,
+  getPlatformSettings,
+  updatePlatformSettings,
   getUser,
+  getUserByDiscordId,
   createUser,
   getSubscription,
+  getActiveSubscriptionsCount,
   createOrUpdateSubscription,
   getAllSubscriptions,
   createLicenseKey,
+  createBulkLicenseKeys,
   redeemLicenseKey,
   getAllLicenseKeys,
+  deleteLicenseKey,
   getBotConfig,
   saveBotConfig
 } = require('./firebase');
@@ -28,6 +34,7 @@ const {
 } = require('./botManager');
 
 const { startExpiryCron } = require('./expiryCron');
+const { initDiscordBot } = require('./discordBot');
 
 // ==========================================
 // 1. إعدادات خادم الويب (Express Web Server)
@@ -65,7 +72,6 @@ function requireAdmin(req, res, next) {
   return res.status(403).json({ error: 'Forbidden', message: 'صلاحيات الأدمن فقط مطلوبة لهذه العملية' });
 }
 
-// التأكد من سريان الاشتراك للزبون (إذا كان أدمن يتجاوز الفحص)
 async function requireActiveSub(req, res, next) {
   const user = req.session.user;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
@@ -86,7 +92,6 @@ async function requireActiveSub(req, res, next) {
   const expiresAt = new Date(sub.expiresAt);
 
   if (sub.status !== 'active' || now >= expiresAt) {
-    // إيقاف البوت فوراً إذا كان شغالاً
     stopBotForUser(user.username);
     return res.status(403).json({
       error: 'EXPIRED',
@@ -98,10 +103,10 @@ async function requireActiveSub(req, res, next) {
 }
 
 // ==========================================
-// 3. مسارات التوثيق والحسابات (Auth Routes)
+// 3. مسارات التوثيق (Auth & Discord OAuth2 Routes)
 // ==========================================
 
-// تسجيل الدخول
+// تسجيل الدخول العادي
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
 
@@ -112,13 +117,11 @@ app.post('/api/auth/login', async (req, res) => {
   const cleanUser = username.trim().toLowerCase();
   const cleanPass = password.trim();
 
-  // فحص تسجيل دخول الأدمن الرئيسي
   if (cleanUser === 'admin' && cleanPass === WEB_PASSWORD) {
     req.session.user = { username: 'admin', role: 'admin' };
     return res.json({ success: true, message: 'تم تسجيل الدخول كمسؤول (Admin)', user: req.session.user });
   }
 
-  // فحص الزبون من قاعدة البيانات
   const user = await getUser(cleanUser);
   if (user && user.password === cleanPass) {
     req.session.user = { username: user.username, role: user.role || 'customer' };
@@ -128,7 +131,7 @@ app.post('/api/auth/login', async (req, res) => {
   return res.status(401).json({ success: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة!' });
 });
 
-// تسجيل حساب زبون جديد (مع إمكانية تفعيل كود فوري)
+// تسجيل حساب جديد
 app.post('/api/auth/register', async (req, res) => {
   const { username, password, licenseKey } = req.body;
 
@@ -162,13 +165,89 @@ app.post('/api/auth/register', async (req, res) => {
   });
 });
 
+// تسجيل الدخول عبر Discord OAuth2
+app.get('/api/auth/discord', (req, res) => {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  if (!clientId) {
+    return res.status(400).send('لم يتم ضبط متغير DISCORD_CLIENT_ID في إعدادات السيرفر.');
+  }
+
+  const host = req.get('host');
+  const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  const redirectUri = encodeURIComponent(`${protocol}://${host}/api/auth/discord/callback`);
+
+  const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=identify`;
+  res.redirect(discordAuthUrl);
+});
+
+// استقبال رد Discord OAuth2 Callback
+app.get('/api/auth/discord/callback', async (req, res) => {
+  const { code } = req.query;
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+
+  if (!code || !clientId || !clientSecret) {
+    return res.redirect('/?error=discord_config_missing');
+  }
+
+  const host = req.get('host');
+  const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  const redirectUri = `${protocol}://${host}/api/auth/discord/callback`;
+
+  try {
+    // تبديل الكود بـ Access Token
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri
+      }),
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) {
+      return res.redirect('/?error=discord_auth_failed');
+    }
+
+    // جلب بيانات مستخدم ديسكورد
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: {
+        authorization: `Bearer ${tokenData.access_token}`
+      }
+    });
+    const discordUser = await userResponse.json();
+
+    // البحث عن مستخدم بنفس الـ Discord ID
+    let user = await getUserByDiscordId(discordUser.id);
+    if (!user) {
+      const cleanUsername = discordUser.username.toLowerCase().replace(/[^a-z0-9_]/g, '') || `dc_${discordUser.id.substring(0, 6)}`;
+      user = await createUser(cleanUsername, 'dc_oauth_' + Math.random(), 'customer', {
+        id: discordUser.id,
+        avatar: discordUser.avatar
+      });
+    }
+
+    req.session.user = { username: user.username, role: user.role || 'customer', discordId: discordUser.id };
+    res.redirect('/');
+  } catch (err) {
+    console.error('[Discord OAuth Error]:', err);
+    res.redirect('/?error=discord_error');
+  }
+});
+
 // تسجيل الخروج
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy();
   res.json({ success: true });
 });
 
-// استعلام بيانات الجلسة والاشتراك الحالية
+// استعلام بيانات الجلسة الحالية
 app.get('/api/auth/me', async (req, res) => {
   if (!req.session || !req.session.user) {
     return res.json({ authenticated: false });
@@ -187,16 +266,22 @@ app.get('/api/auth/me', async (req, res) => {
     }
   }
 
+  const settings = await getPlatformSettings();
+  const activeCount = await getActiveSubscriptionsCount();
+
   res.json({
     authenticated: true,
     user,
     subscription,
     timeLeftSeconds,
-    isFirebase: isFirebaseConnected()
+    isFirebase: isFirebaseConnected(),
+    maxSlots: settings.maxSlots || 10,
+    activeSlots: activeCount,
+    discordEnabled: !!(process.env.DISCORD_CLIENT_ID)
   });
 });
 
-// تفعيل كود اشتراك
+// تفعيل كود اشتراك فردي (Single-Use Code)
 app.post('/api/subscription/redeem', requireAuth, async (req, res) => {
   const { key } = req.body;
   if (!key || !key.trim()) {
@@ -211,13 +296,12 @@ app.post('/api/subscription/redeem', requireAuth, async (req, res) => {
 // 4. مسارات التحكم بالبوت (Bot Control Routes)
 // ==========================================
 
-// جلب حالة البوت الخاص بالزبون الحالي
+// جلب حالة البوت
 app.get('/api/bot/status', requireAuth, async (req, res) => {
   const targetUser = (req.session.user.role === 'admin' && req.query.user)
     ? req.query.user
     : req.session.user.username;
 
-  // فحص صلاحية الاشتراك للزبون العادي
   let isExpired = false;
   let subscription = null;
   let timeLeftSeconds = 0;
@@ -245,7 +329,7 @@ app.get('/api/bot/status', requireAuth, async (req, res) => {
   });
 });
 
-// تشغيل واتصال البوت
+// تشغيل البوت
 app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => {
   const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
     ? req.body.targetUser
@@ -294,9 +378,7 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
     autoCommandDelay: parseInt(autoCommandDelay || '7', 10)
   };
 
-  // حفظ الإعدادات في قاعدة البيانات
   await saveBotConfig(targetUser, botConfig);
-
   const result = startBotForUser(targetUser, botConfig);
   res.json(result);
 });
@@ -311,7 +393,7 @@ app.post('/api/bot/disconnect', requireAuth, (req, res) => {
   res.json(result);
 });
 
-// توجيه البوت إلى إحداثيات محددة
+// تحريك البوت
 app.post('/api/bot/move', requireAuth, requireActiveSub, (req, res) => {
   const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
     ? req.body.targetUser
@@ -332,7 +414,7 @@ app.post('/api/bot/stop-move', requireAuth, requireActiveSub, (req, res) => {
   res.json({ success: stopped });
 });
 
-// إرسال شات أو أمر بالسيرفر
+// إرسال شات
 app.post('/api/bot/chat', requireAuth, requireActiveSub, (req, res) => {
   const targetUser = (req.session.user.role === 'admin' && req.body.targetUser)
     ? req.body.targetUser
@@ -375,13 +457,14 @@ app.post('/api/bot/set-target', requireAuth, requireActiveSub, async (req, res) 
 });
 
 // ==========================================
-// 5. مسارات الإدارة والأرباح (Admin Panel Routes)
+// 5. مسارات الإدارة وسعة المشتركين (Admin Panel Routes)
 // ==========================================
 
 // الإحصائيات الشاملة
 app.get('/api/admin/overview', requireAdmin, async (req, res) => {
   const subscriptions = await getAllSubscriptions();
   const botStats = getAdminStats();
+  const settings = await getPlatformSettings();
 
   let activeCount = 0;
   let expiredCount = 0;
@@ -405,11 +488,23 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
     expiredSubscriptions: expiredCount,
     totalRevenueIQD,
     connectedBots: botStats.connectedBots,
+    maxSlots: settings.maxSlots || 10,
     isFirebase: isFirebaseConnected()
   });
 });
 
-// جلب قائمة المشتركين وتواريخ الانتهاء
+// تحديث سعة البوتات المتاحة
+app.post('/api/admin/settings', requireAdmin, async (req, res) => {
+  const { maxSlots, weeklyPriceIQD } = req.body;
+  const updates = {};
+  if (maxSlots !== undefined) updates.maxSlots = parseInt(maxSlots, 10) || 10;
+  if (weeklyPriceIQD !== undefined) updates.weeklyPriceIQD = parseInt(weeklyPriceIQD, 10) || 40000;
+
+  await updatePlatformSettings(updates);
+  res.json({ success: true, message: 'تم تحديث إعدادات الطاقة الاستيعابية وسعر الاشتراك بنجاح' });
+});
+
+// جلب قائمة المشتركين
 app.get('/api/admin/subscriptions', requireAdmin, async (req, res) => {
   const subscriptions = await getAllSubscriptions();
   const now = new Date();
@@ -431,54 +526,32 @@ app.get('/api/admin/subscriptions', requireAdmin, async (req, res) => {
   res.json({ subscriptions: formatted });
 });
 
-// إنشاء اشتراك مباشر للزبون بعد استلام 40 ألف دينار
-app.post('/api/admin/subscriptions/create', requireAdmin, async (req, res) => {
-  const { username, password, days, pricePaid } = req.body;
-
-  if (!username) {
-    return res.status(400).json({ success: false, message: 'يرجى إدخال اسم المستخدم' });
-  }
-
-  const cleanUser = username.trim().toLowerCase();
-  let user = await getUser(cleanUser);
-
-  if (!user) {
-    if (!password) {
-      return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة مرور للحساب الجديد' });
-    }
-    user = await createUser(cleanUser, password, 'customer');
-  }
-
-  const subscriptionDays = parseInt(days || '7', 10);
-  const revenue = parseInt(pricePaid || '40000', 10);
-
-  const sub = await createOrUpdateSubscription(cleanUser, subscriptionDays, revenue);
-  res.json({ success: true, message: `تم تفعيل اشتراك المستخدم لمدة ${subscriptionDays} أيام!`, subscription: sub });
-});
-
-// تمديد اشتراك مستخدم (+7 أيام مثلاً)
+// تمديد اشتراك مستخدم (+7 أيام)
 app.post('/api/admin/subscriptions/extend', requireAdmin, async (req, res) => {
   const { username, days, pricePaid } = req.body;
-
-  if (!username) {
-    return res.status(400).json({ success: false, message: 'يرجى تحديد المستخدم' });
-  }
+  if (!username) return res.status(400).json({ success: false, message: 'يرجى تحديد المستخدم' });
 
   const addDays = parseInt(days || '7', 10);
   const revenue = parseInt(pricePaid || '40000', 10);
 
   const sub = await createOrUpdateSubscription(username.trim().toLowerCase(), addDays, revenue);
-  res.json({ success: true, message: `تم تمديد الاشتراك بنجاح (+${addDays} أيام)!`, subscription: sub });
+  res.json({ success: true, message: `تم تتمديد الاشتراك بنجاح (+${addDays} أيام)!`, subscription: sub });
 });
 
-// توليد كود اشتراك أسبوعي لبيعه للزبائن (40,000 د.ع)
+// توليد أكواد اشتراك أحادية الاستخدام (Single-Use Keys - مفردة أو دفعة)
 app.post('/api/admin/keys/create', requireAdmin, async (req, res) => {
-  const { days, price } = req.body;
+  const { count, days, price } = req.body;
+  const numCount = parseInt(count || '1', 10);
   const numDays = parseInt(days || '7', 10);
   const keyPrice = parseInt(price || '40000', 10);
 
-  const newKey = await createLicenseKey(numDays, keyPrice);
-  res.json({ success: true, licenseKey: newKey });
+  if (numCount > 1) {
+    const keys = await createBulkLicenseKeys(numCount, numDays, keyPrice);
+    return res.json({ success: true, licenseKeys: keys });
+  } else {
+    const newKey = await createLicenseKey(numDays, keyPrice);
+    return res.json({ success: true, licenseKey: newKey });
+  }
 });
 
 // جلب قائمة أكواد الاشتراكات
@@ -487,8 +560,15 @@ app.get('/api/admin/keys', requireAdmin, async (req, res) => {
   res.json({ keys });
 });
 
+// حذف كود اشتراك
+app.delete('/api/admin/keys/:key', requireAdmin, async (req, res) => {
+  const { key } = req.params;
+  await deleteLicenseKey(key);
+  res.json({ success: true, message: 'تم حذف كود الاشتراك' });
+});
+
 // ==========================================
-// 6. حماية العملية وتشغيل الخادم ومحرك الفحص
+// 6. تشغيل الخادم والخدمات المساندة
 // ==========================================
 process.on('uncaughtException', (err) => {
   console.error(`[Process Error] Uncaught Exception:`, err.message || err);
@@ -505,6 +585,9 @@ app.listen(WEB_PORT, () => {
   console.log(`[HTTP] Admin user: 'admin' (password: '${WEB_PASSWORD}')`);
   console.log(`==================================================`);
 
-  // تشغيل محرك مراقبة انتهاء الاشتراكات
+  // تشغيل مراقبة انتهاء الاشتراكات
   startExpiryCron(30);
+
+  // تشغيل بوت ديسكورد إن وُجد التوكن
+  initDiscordBot();
 });

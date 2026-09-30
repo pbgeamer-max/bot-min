@@ -23,6 +23,31 @@
         <p>خدمة تأجير بوتات DonutSMP باشتراكات أسبوعية وشهرية</p>
       </div>
 
+      <!-- Capacity Slots Indicator on Gate -->
+      <div class="gate-capacity-box" id="gateCapacityBox">
+        <i class="fa-solid fa-server"></i>
+        <span>سعة المقاعد: <strong id="gateActiveSlots">--</strong> / <strong id="gateMaxSlots">--</strong> مشتركين</span>
+        <span id="gateSlotsStatus" class="slots-tag available">🟢 متاح</span>
+      </div>
+
+      <!-- Discord OAuth 1-Click Login -->
+      <div class="discord-oauth-wrapper">
+        <a href="/api/auth/discord" class="btn btn-discord btn-block" id="discordLoginBtn">
+          <i class="fa-brands fa-discord"></i>
+          <span>دخول فوري بحساب ديسكورد (1-Click)</span>
+        </a>
+      </div>
+
+      <!-- Discord Error Message if redirected -->
+      <div id="discordErrorAlert" class="alert-box error hidden">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="discordErrorMsg">فشل تسجيل الدخول عبر ديسكورد</span>
+      </div>
+
+      <div class="auth-divider">
+        <span>أو الدخول باسم المستخدم وكلمة المرور</span>
+      </div>
+
       <!-- Auth Tabs: Login vs Register with Code -->
       <div class="auth-tabs">
         <button type="button" id="tabLoginBtn" class="auth-tab active">تسجيل الدخول</button>
@@ -65,7 +90,7 @@
         </div>
 
         <div class="input-group">
-          <label for="regLicenseKey"><i class="fa-solid fa-ticket"></i> كود الاشتراك (اختياري - لتفعيل 7 أيام فوراً)</label>
+          <label for="regLicenseKey"><i class="fa-solid fa-ticket"></i> كود الاشتراك الفردي (لشخص واحد فقط - اختياري لتفعيل 7 أيام فوراً)</label>
           <input type="text" id="regLicenseKey" placeholder="مثال: F1-7D-XXXX-YYYY">
         </div>
 
@@ -102,11 +127,23 @@
         </div>
 
         <div class="nav-actions">
+          <!-- Capacity Slots Pill -->
+          <div id="navSlotsPill" class="slots-pill">
+            <i class="fa-solid fa-server"></i>
+            <span>المقاعد: <strong id="navActiveSlots">0</strong> / <strong id="navMaxSlots">10</strong></span>
+          </div>
+
           <!-- Subscription Countdown Badge -->
           <div id="subCountdownBadge" class="sub-badge active">
             <i class="fa-solid fa-clock"></i>
             <span id="subCountdownText">متبقي على اشتراكك: 7 أيام</span>
           </div>
+
+          <!-- Redeem Key Button for User -->
+          <button id="openRedeemModalBtn" class="btn btn-outline-success">
+            <i class="fa-solid fa-ticket"></i>
+            <span>تفعيل كود</span>
+          </button>
 
           <!-- Admin Portal Trigger Button (Visible only for admin) -->
           <button id="openAdminBtn" class="btn btn-outline-secondary hidden">
@@ -413,68 +450,190 @@
 
     </main>
 
+    <!-- ==================== USER REDEEM MODAL ==================== -->
+    <div id="userRedeemModal" class="modal-overlay hidden">
+      <div class="modal-card glass-panel" style="max-width: 480px;">
+        <div class="modal-header">
+          <h2><i class="fa-solid fa-ticket text-yellow"></i> تفعيل كود اشتراك</h2>
+          <button type="button" id="closeUserRedeemBtn" class="close-btn">&times;</button>
+        </div>
+        <div class="user-redeem-container">
+          <p class="sub-text" style="margin-bottom: 15px; font-size: 14px;">أدخل كود الاشتراك الأسبوعي (40,000 د.ع / 7 أيام) لتمديد أو تفعيل البوت فوراً:</p>
+          <div class="redeem-input-row">
+            <input type="text" id="userRedeemKeyInput" placeholder="أدخل الكود: F1-7D-XXXX-YYYY">
+            <button type="button" id="userRedeemSubmitBtn" class="btn btn-success">
+              <i class="fa-solid fa-check"></i> تفعيل
+            </button>
+          </div>
+          <div id="userRedeemResult" class="alert-box hidden" style="margin-top: 15px;"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ==================== ADMIN SUPER-PANEL MODAL ==================== -->
     <div id="adminModal" class="modal-overlay hidden">
-      <div class="modal-card glass-panel">
+      <div class="modal-card glass-panel modal-wide">
         <div class="modal-header">
-          <h2><i class="fa-solid fa-crown text-yellow"></i> لوحة إدارة المشتركين والأرباح</h2>
+          <h2><i class="fa-solid fa-crown text-yellow"></i> لوحة إدارة المنصة والمشتركين والأرباح</h2>
           <button type="button" id="closeAdminBtn" class="close-btn">&times;</button>
         </div>
 
+        <!-- Admin Overview Stats -->
         <div class="admin-stats-grid">
           <div class="stat-card">
             <span class="stat-num" id="adminTotalRevenue">0 د.ع</span>
             <span class="stat-desc">إجمالي الأرباح المستلمة</span>
           </div>
           <div class="stat-card">
-            <span class="stat-num" id="adminActiveSubs">0</span>
-            <span class="stat-desc">الاشتراكات النشطة حالياً</span>
+            <span class="stat-num" id="adminActiveSubs">0 / 10</span>
+            <span class="stat-desc">سعة المشتركين النشطين</span>
           </div>
           <div class="stat-card">
             <span class="stat-num" id="adminConnectedBots">0</span>
-            <span class="stat-desc">البوتات المتصلة الآن بالسيرفر</span>
+            <span class="stat-desc">البوتات المتصلة الآن بسيرفر DonutSMP</span>
           </div>
           <div class="stat-card">
             <span class="stat-num" id="adminDbStatus">Firebase 🟢</span>
-            <span class="stat-desc">حالة قاعدة البيانات</span>
+            <span class="stat-desc">قاعدة البيانات السحابية</span>
           </div>
         </div>
 
-        <div class="admin-actions-bar">
-          <button type="button" id="generateKeyBtn" class="btn btn-primary">
-            <i class="fa-solid fa-plus"></i> توليد كود اشتراك جديد (40,000 د.ع / 7 أيام)
+        <!-- Admin Navigation Tabs -->
+        <div class="admin-tabs">
+          <button type="button" id="adminTabSubs" class="admin-tab active">
+            <i class="fa-solid fa-users"></i> المشتركون وسعة المقاعد
+          </button>
+          <button type="button" id="adminTabKeys" class="admin-tab">
+            <i class="fa-solid fa-ticket"></i> توليد وإدارة أكواد الاشتراكات
+          </button>
+          <button type="button" id="adminTabSettings" class="admin-tab">
+            <i class="fa-solid fa-sliders"></i> إعدادات المنصة والسعة
           </button>
         </div>
 
-        <!-- Latest Generated Key Notification -->
-        <div id="generatedKeyBox" class="alert-box success hidden">
-          <i class="fa-solid fa-ticket"></i>
-          <div>
-            <span>تم توليد كود اشتراك بنجاح:</span>
-            <strong id="newKeyDisplay" class="font-mono">F1-7D-XXXX-YYYY</strong>
+        <!-- 1. TAB: Subscriptions List -->
+        <div id="adminSubsView" class="admin-tab-view">
+          <div class="admin-table-wrapper">
+            <div class="table-header-row">
+              <h3>قائمة المشتركين ومؤقتات الانتهاء:</h3>
+              <button type="button" id="refreshSubsBtn" class="btn btn-sm btn-outline-secondary">
+                <i class="fa-solid fa-rotate"></i> تحديث القائمة
+              </button>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>المشترك</th>
+                  <th>الحالة</th>
+                  <th>المتبقي</th>
+                  <th>تاريخ الانتهاء</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="adminSubsTableBody">
+                <tr>
+                  <td colspan="5" class="text-center">جاري تحميل بيانات المشتركين...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <!-- Subscriptions Table -->
-        <div class="admin-table-wrapper">
-          <h3>قائمة المشتركين ومؤقتات الانتهاء:</h3>
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>المشترك</th>
-                <th>الحالة</th>
-                <th>المتبقي</th>
-                <th>تاريخ الانتهاء</th>
-                <th>إجراءات</th>
-              </tr>
-            </thead>
-            <tbody id="adminSubsTableBody">
-              <tr>
-                <td colspan="5" class="text-center">جاري تحميل بيانات المشتركين...</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- 2. TAB: License Keys Management -->
+        <div id="adminKeysView" class="admin-tab-view hidden">
+          <div class="admin-card-inner">
+            <div class="keys-create-box">
+              <h4><i class="fa-solid fa-plus-circle text-accent"></i> توليد أكواد اشتراكات جديدة (كود واحد لشخص واحد فقط):</h4>
+              <div class="keys-generator-form">
+                <div class="input-group">
+                  <label for="keyCountSelect">عدد الأكواد:</label>
+                  <select id="keyCountSelect">
+                    <option value="1">كود واحد (1)</option>
+                    <option value="5">5 أكواد دفعة واحدة</option>
+                    <option value="10">10 أكواد دفعة واحدة</option>
+                  </select>
+                </div>
+                <div class="input-group">
+                  <label for="keyDaysInput">المدة (بالأيام):</label>
+                  <input type="number" id="keyDaysInput" value="7" min="1" max="365">
+                </div>
+                <div class="input-group">
+                  <label for="keyPriceInput">السعر (د.ع):</label>
+                  <input type="number" id="keyPriceInput" value="40000" min="0" step="5000">
+                </div>
+                <div class="input-group align-end">
+                  <button type="button" id="generateBatchKeysBtn" class="btn btn-success">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> توليد الآن
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Latest Generated Keys Box -->
+            <div id="generatedKeyBox" class="alert-box success hidden">
+              <i class="fa-solid fa-ticket"></i>
+              <div id="generatedKeysContainer">
+                <span>تم توليد الكود بنجاح:</span>
+                <strong id="newKeyDisplay" class="font-mono">F1-7D-XXXX-YYYY</strong>
+              </div>
+            </div>
+
+            <!-- Table of all Keys -->
+            <div class="admin-table-wrapper" style="margin-top: 20px;">
+              <div class="table-header-row">
+                <h3>جميع أكواد الاشتراكات وحالتها:</h3>
+                <button type="button" id="refreshKeysBtn" class="btn btn-sm btn-outline-secondary">
+                  <i class="fa-solid fa-rotate"></i> تحديث الأكواد
+                </button>
+              </div>
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>كود الاشتراك</th>
+                    <th>المدة</th>
+                    <th>السعر</th>
+                    <th>حالة الكود</th>
+                    <th>المستخدم / التاريخ</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody id="adminKeysTableBody">
+                  <tr>
+                    <td colspan="6" class="text-center">جاري تحميل الأكواد...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+
+        <!-- 3. TAB: Platform Settings & Capacity -->
+        <div id="adminSettingsView" class="admin-tab-view hidden">
+          <div class="admin-card-inner">
+            <h4><i class="fa-solid fa-sliders text-accent"></i> إعدادات سعة المشتركين والتسعير</h4>
+            <p class="sub-text" style="margin-bottom: 20px;">عند وصول عدد المشتركين النشطين للحد الأقصى، يمنع النظام تفعيل أي اشتراك جديد حتى يتفرغ مقعد.</p>
+            <form id="adminSettingsForm" class="settings-form">
+              <div class="form-row">
+                <div class="input-group">
+                  <label for="adminMaxSlotsInput"><i class="fa-solid fa-users"></i> الحد الأقصى للمقاعد (سعة البوتات)</label>
+                  <input type="number" id="adminMaxSlotsInput" min="1" max="100" value="10">
+                </div>
+                <div class="input-group">
+                  <label for="adminPriceInput"><i class="fa-solid fa-money-bill-wave"></i> سعر الاشتراك الأسبوعي الافتراضي (د.ع)</label>
+                  <input type="number" id="adminPriceInput" min="1000" step="5000" value="40000">
+                </div>
+              </div>
+              <div id="adminSettingsAlert" class="alert-box success hidden">
+                <i class="fa-solid fa-check"></i>
+                <span>تم حفظ وتحديث الإعدادات بنجاح!</span>
+              </div>
+              <button type="submit" id="saveAdminSettingsBtn" class="btn btn-primary">
+                <i class="fa-solid fa-floppy-disk"></i> حفظ الإعدادات
+              </button>
+            </form>
+          </div>
+        </div>
+
       </div>
     </div>
 

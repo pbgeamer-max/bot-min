@@ -18,6 +18,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const logoutBtn = document.getElementById('logoutBtn');
   const userNameSpan = document.getElementById('userNameSpan');
 
+  // Gate & Discord Elements
+  const gateCapacityBox = document.getElementById('gateCapacityBox');
+  const gateActiveSlots = document.getElementById('gateActiveSlots');
+  const gateMaxSlots = document.getElementById('gateMaxSlots');
+  const gateSlotsStatus = document.getElementById('gateSlotsStatus');
+  const discordErrorAlert = document.getElementById('discordErrorAlert');
+  const discordErrorMsg = document.getElementById('discordErrorMsg');
+
+  // Top Navbar Capacity & User Redeem Elements
+  const navSlotsPill = document.getElementById('navSlotsPill');
+  const navActiveSlots = document.getElementById('navActiveSlots');
+  const navMaxSlots = document.getElementById('navMaxSlots');
+  const openRedeemModalBtn = document.getElementById('openRedeemModalBtn');
+  const userRedeemModal = document.getElementById('userRedeemModal');
+  const closeUserRedeemBtn = document.getElementById('closeUserRedeemBtn');
+  const userRedeemKeyInput = document.getElementById('userRedeemKeyInput');
+  const userRedeemSubmitBtn = document.getElementById('userRedeemSubmitBtn');
+  const userRedeemResult = document.getElementById('userRedeemResult');
+
   // Subscription & Expiry Elements
   const subCountdownBadge = document.getElementById('subCountdownBadge');
   const subCountdownText = document.getElementById('subCountdownText');
@@ -33,10 +52,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const adminActiveSubs = document.getElementById('adminActiveSubs');
   const adminConnectedBots = document.getElementById('adminConnectedBots');
   const adminDbStatus = document.getElementById('adminDbStatus');
-  const generateKeyBtn = document.getElementById('generateKeyBtn');
-  const generatedKeyBox = document.getElementById('generatedKeyBox');
-  const newKeyDisplay = document.getElementById('newKeyDisplay');
   const adminSubsTableBody = document.getElementById('adminSubsTableBody');
+  const refreshSubsBtn = document.getElementById('refreshSubsBtn');
+
+  // Admin Tabs
+  const adminTabSubs = document.getElementById('adminTabSubs');
+  const adminTabKeys = document.getElementById('adminTabKeys');
+  const adminTabSettings = document.getElementById('adminTabSettings');
+  const adminSubsView = document.getElementById('adminSubsView');
+  const adminKeysView = document.getElementById('adminKeysView');
+  const adminSettingsView = document.getElementById('adminSettingsView');
+
+  // Admin Keys Generator & List
+  const keyCountSelect = document.getElementById('keyCountSelect');
+  const keyDaysInput = document.getElementById('keyDaysInput');
+  const keyPriceInput = document.getElementById('keyPriceInput');
+  const generateBatchKeysBtn = document.getElementById('generateBatchKeysBtn');
+  const generatedKeyBox = document.getElementById('generatedKeyBox');
+  const generatedKeysContainer = document.getElementById('generatedKeysContainer');
+  const refreshKeysBtn = document.getElementById('refreshKeysBtn');
+  const adminKeysTableBody = document.getElementById('adminKeysTableBody');
+
+  // Admin Platform Settings
+  const adminSettingsForm = document.getElementById('adminSettingsForm');
+  const adminMaxSlotsInput = document.getElementById('adminMaxSlotsInput');
+  const adminPriceInput = document.getElementById('adminPriceInput');
+  const adminSettingsAlert = document.getElementById('adminSettingsAlert');
+  const saveAdminSettingsBtn = document.getElementById('saveAdminSettingsBtn');
 
   // Microsoft Auth Banner Elements
   const msaBanner = document.getElementById('msaBanner');
@@ -119,11 +161,53 @@ document.addEventListener('DOMContentLoaded', () => {
     regErrorAlert.classList.add('hidden');
   });
 
+  // فحص معاملات رابط الـ Discord OAuth للتحقق من وجود أي خطأ
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('error')) {
+    const err = urlParams.get('error');
+    let msg = 'حدث خطأ أثناء محاولة تسجيل الدخول عبر ديسكورد.';
+    if (err === 'discord_config_missing') msg = 'لم يتم ضبط متغيرات ديسكورد (DISCORD_CLIENT_ID / SECRET) في السيرفر بعد.';
+    if (err === 'discord_auth_failed') msg = 'فشلت عملية المصادقة مع ديسكورد أو تم إلغاء الإذن.';
+    if (err === 'discord_error') msg = 'حدث خطأ داخلي أثناء استرجاع حساب ديسكورد.';
+    if (discordErrorMsg && discordErrorAlert) {
+      discordErrorMsg.textContent = msg;
+      discordErrorAlert.classList.remove('hidden');
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+  function updateSlotsDisplay(active, max) {
+    if (gateActiveSlots) gateActiveSlots.textContent = active;
+    if (gateMaxSlots) gateMaxSlots.textContent = max;
+    if (navActiveSlots) navActiveSlots.textContent = active;
+    if (navMaxSlots) navMaxSlots.textContent = max;
+
+    const isFull = active >= max;
+    if (gateSlotsStatus) {
+      if (isFull) {
+        gateSlotsStatus.className = 'slots-tag full';
+        gateSlotsStatus.textContent = '⚠️ المقاعد ممتلئة';
+      } else {
+        gateSlotsStatus.className = 'slots-tag available';
+        gateSlotsStatus.textContent = `🟢 متاح (${max - active} متبقي)`;
+      }
+    }
+    if (navSlotsPill) {
+      navSlotsPill.classList.toggle('full', isFull);
+    }
+  }
+
   // 2. فحص التوثيق الحالي
   async function checkAuth() {
     try {
       const res = await fetch('/api/auth/me');
       const data = await res.json();
+
+      // تحديث حالة السعة والمقاعد
+      if (data.maxSlots !== undefined) {
+        updateSlotsDisplay(data.activeSlots || 0, data.maxSlots);
+      }
+
       if (data.authenticated) {
         currentUser = data.user;
         currentSubscription = data.subscription;
@@ -300,7 +384,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 8. لوحة تحكم المسؤول (Admin Modal)
+  // 8. مودال تفعيل كود الاشتراك للزبون (User Redeem Modal)
+  if (openRedeemModalBtn) {
+    openRedeemModalBtn.addEventListener('click', () => {
+      userRedeemModal.classList.remove('hidden');
+      userRedeemKeyInput.value = '';
+      userRedeemResult.classList.add('hidden');
+    });
+  }
+
+  if (closeUserRedeemBtn) {
+    closeUserRedeemBtn.addEventListener('click', () => {
+      userRedeemModal.classList.add('hidden');
+    });
+  }
+
+  if (userRedeemSubmitBtn) {
+    userRedeemSubmitBtn.addEventListener('click', async () => {
+      const key = userRedeemKeyInput.value.trim();
+      if (!key) {
+        userRedeemResult.className = 'alert-box error';
+        userRedeemResult.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> يرجى إدخال الكود أولاً!';
+        userRedeemResult.classList.remove('hidden');
+        return;
+      }
+
+      userRedeemSubmitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/subscription/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          userRedeemResult.className = 'alert-box success';
+          userRedeemResult.innerHTML = `<i class="fa-solid fa-check"></i> ${data.message}`;
+          userRedeemResult.classList.remove('hidden');
+          setTimeout(() => {
+            userRedeemModal.classList.add('hidden');
+            checkAuth();
+          }, 1500);
+        } else {
+          userRedeemResult.className = 'alert-box error';
+          userRedeemResult.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${data.message || 'فشل تفعيل الكود'}`;
+          userRedeemResult.classList.remove('hidden');
+        }
+      } catch (e) {
+        userRedeemResult.className = 'alert-box error';
+        userRedeemResult.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> خطأ في الاتصال بالخادم!';
+        userRedeemResult.classList.remove('hidden');
+      } finally {
+        userRedeemSubmitBtn.disabled = false;
+      }
+    });
+  }
+
+  // 9. لوحة تحكم المسؤول الشاملة (Admin Super-Panel)
   openAdminBtn.addEventListener('click', () => {
     adminModal.classList.remove('hidden');
     loadAdminData();
@@ -309,6 +450,27 @@ document.addEventListener('DOMContentLoaded', () => {
   closeAdminBtn.addEventListener('click', () => {
     adminModal.classList.add('hidden');
   });
+
+  // التنقل بين تبويبات لوحة الأدمن
+  function switchAdminTab(viewName) {
+    adminTabSubs.classList.toggle('active', viewName === 'subs');
+    adminTabKeys.classList.toggle('active', viewName === 'keys');
+    adminTabSettings.classList.toggle('active', viewName === 'settings');
+
+    adminSubsView.classList.toggle('hidden', viewName !== 'subs');
+    adminKeysView.classList.toggle('hidden', viewName !== 'keys');
+    adminSettingsView.classList.toggle('hidden', viewName !== 'settings');
+  }
+
+  if (adminTabSubs) adminTabSubs.addEventListener('click', () => switchAdminTab('subs'));
+  if (adminTabKeys) adminTabKeys.addEventListener('click', () => {
+    switchAdminTab('keys');
+    loadAdminKeys();
+  });
+  if (adminTabSettings) adminTabSettings.addEventListener('click', () => switchAdminTab('settings'));
+
+  if (refreshSubsBtn) refreshSubsBtn.addEventListener('click', loadAdminData);
+  if (refreshKeysBtn) refreshKeysBtn.addEventListener('click', loadAdminKeys);
 
   async function loadAdminData() {
     try {
@@ -321,11 +483,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const subsData = await resSubs.json();
 
       adminTotalRevenue.textContent = `${overview.totalRevenueIQD.toLocaleString('en-US')} د.ع`;
-      adminActiveSubs.textContent = overview.activeSubscriptions;
+      adminActiveSubs.textContent = `${overview.activeSubscriptions} / ${overview.maxSlots || 10}`;
       adminConnectedBots.textContent = overview.connectedBots;
       adminDbStatus.textContent = overview.isFirebase ? 'Firebase Firestore 🟢' : 'Local JSON Fallback 🟡';
 
+      if (adminMaxSlotsInput) adminMaxSlotsInput.value = overview.maxSlots || 10;
+
       renderAdminSubscriptions(subsData.subscriptions);
+      loadAdminKeys();
     } catch (err) {
       console.error('Error loading admin data:', err);
     }
@@ -345,12 +510,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       return `
         <tr>
-          <td><strong>${sub.userId}</strong></td>
+          <td><strong>${escapeHtml(sub.userId)}</strong></td>
           <td>${statusBadgeHtml}</td>
           <td>${sub.isActive ? `${sub.daysLeft} يوم` : '0'}</td>
           <td>${expDate}</td>
           <td>
-            <button class="btn btn-sm btn-success extend-btn" data-user="${sub.userId}">
+            <button class="btn btn-sm btn-success extend-btn" data-user="${escapeHtml(sub.userId)}">
               <i class="fa-solid fa-plus"></i> +7 أيام
             </button>
           </td>
@@ -385,27 +550,175 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // توليد كود اشتراك أسبوعي
-  generateKeyBtn.addEventListener('click', async () => {
-    generateKeyBtn.disabled = true;
+  // جلب وعرض قائمة أكواد الاشتراكات
+  async function loadAdminKeys() {
     try {
-      const res = await fetch('/api/admin/keys/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: 7, price: 40000 })
-      });
+      const res = await fetch('/api/admin/keys');
       const data = await res.json();
-      if (data.success) {
-        newKeyDisplay.textContent = data.licenseKey.key;
-        generatedKeyBox.classList.remove('hidden');
-        loadAdminData();
-      }
+      renderAdminKeys(data.keys || []);
     } catch (e) {
-      alert('خطأ أثناء توليد الكود!');
-    } finally {
-      generateKeyBtn.disabled = false;
+      console.error('Error fetching admin keys:', e);
     }
-  });
+  }
+
+  function renderAdminKeys(keys) {
+    if (!adminKeysTableBody) return;
+    if (!keys || !keys.length) {
+      adminKeysTableBody.innerHTML = `<tr><td colspan="6" class="text-center">لا توجد أكواد اشتراكات مولدة حالياً. اضغط "توليد الآن" لإنشاء كود.</td></tr>`;
+      return;
+    }
+
+    // ترتيب الأحدث أولاً
+    keys.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    adminKeysTableBody.innerHTML = keys.map(k => {
+      const statusBadge = k.isUsed
+        ? `<span class="key-used-badge"><i class="fa-solid fa-lock"></i> مستخدم</span>`
+        : `<span class="key-available-badge"><i class="fa-solid fa-circle-check"></i> متاح للبيع</span>`;
+
+      const usageInfo = k.isUsed
+        ? `بواسطة: <strong>${escapeHtml(k.usedBy || '--')}</strong><br><small style="color:var(--text-muted);">${new Date(k.usedAt).toLocaleDateString('ar-EG')}</small>`
+        : `<span style="color:var(--text-muted); font-size:12px;">جاهز للاستخدام لمرة واحدة</span>`;
+
+      return `
+        <tr>
+          <td>
+            <strong class="font-mono">${k.key}</strong>
+            <button class="copy-key-btn" data-key="${k.key}" title="نسخ الكود">
+              <i class="fa-solid fa-copy"></i> نسخ
+            </button>
+          </td>
+          <td>${k.days} أيام</td>
+          <td>${(k.price || 40000).toLocaleString('en-US')} د.ع</td>
+          <td>${statusBadge}</td>
+          <td>${usageInfo}</td>
+          <td>
+            ${!k.isUsed ? `
+              <button class="delete-key-btn" data-key="${k.key}" title="حذف الكود">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            ` : '<span style="color:var(--text-muted); font-size:11px;">مستهلك</span>'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // تفعيل أزرار النسخ الفوري
+    adminKeysTableBody.querySelectorAll('.copy-key-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.dataset.key;
+        navigator.clipboard.writeText(code).then(() => {
+          btn.innerHTML = '<i class="fa-solid fa-check"></i> تم النسخ!';
+          setTimeout(() => {
+            btn.innerHTML = '<i class="fa-solid fa-copy"></i> نسخ';
+          }, 1500);
+        });
+      });
+    });
+
+    // تفعيل أزرار الحذف
+    adminKeysTableBody.querySelectorAll('.delete-key-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = btn.dataset.key;
+        if (!confirm(`هل تريد بالتأكيد حذف كود الاشتراك (${code})؟`)) return;
+
+        btn.disabled = true;
+        try {
+          await fetch(`/api/admin/keys/${code}`, { method: 'DELETE' });
+          loadAdminKeys();
+        } catch (e) {
+          alert('خطأ أثناء حذف الكود!');
+        }
+      });
+    });
+  }
+
+  // توليد أكواد اشتراكات (مفردة أو دفعة 5 / 10)
+  if (generateBatchKeysBtn) {
+    generateBatchKeysBtn.addEventListener('click', async () => {
+      const count = parseInt(keyCountSelect.value, 10) || 1;
+      const days = parseInt(keyDaysInput.value, 10) || 7;
+      const price = parseInt(keyPriceInput.value, 10) || 40000;
+
+      generateBatchKeysBtn.disabled = true;
+      generateBatchKeysBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التوليد...';
+
+      try {
+        const res = await fetch('/api/admin/keys/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count, days, price })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          if (data.licenseKeys) {
+            const listHtml = data.licenseKeys.map(k => `
+              <div style="margin: 6px 0; display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.2); padding:6px 10px; border-radius:6px;">
+                <span class="font-mono">${k.key}</span>
+                <button class="copy-key-btn" data-key="${k.key}"><i class="fa-solid fa-copy"></i> نسخ الكود</button>
+              </div>
+            `).join('');
+            generatedKeysContainer.innerHTML = `<span>تم توليد <strong>${data.licenseKeys.length}</strong> أكواد بنجاح (كل كود يستخدمه شخص واحد فقط):</span>` + listHtml;
+          } else if (data.licenseKey) {
+            generatedKeysContainer.innerHTML = `
+              <span>تم توليد كود اشتراك بنجاح:</span>
+              <strong class="font-mono">${data.licenseKey.key}</strong>
+              <button class="copy-key-btn" data-key="${data.licenseKey.key}"><i class="fa-solid fa-copy"></i> نسخ</button>
+            `;
+          }
+          generatedKeyBox.classList.remove('hidden');
+          loadAdminKeys();
+
+          // ربط النسخ للأكواد المتولدة للتو
+          generatedKeysContainer.querySelectorAll('.copy-key-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              navigator.clipboard.writeText(btn.dataset.key).then(() => {
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> تم!';
+                setTimeout(() => btn.innerHTML = '<i class="fa-solid fa-copy"></i> نسخ', 1500);
+              });
+            });
+          });
+        } else {
+          alert(data.message || 'تعذر توليد الأكواد');
+        }
+      } catch (e) {
+        alert('خطأ في توليد الأكواد!');
+      } finally {
+        generateBatchKeysBtn.disabled = false;
+        generateBatchKeysBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> توليد الآن';
+      }
+    });
+  }
+
+  // حفظ إعدادات المنصة والسعة القصوى
+  if (adminSettingsForm) {
+    adminSettingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const maxSlots = parseInt(adminMaxSlotsInput.value, 10);
+      const weeklyPriceIQD = parseInt(adminPriceInput.value, 10);
+
+      saveAdminSettingsBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ maxSlots, weeklyPriceIQD })
+        });
+        const data = await res.json();
+        if (data.success) {
+          adminSettingsAlert.classList.remove('hidden');
+          setTimeout(() => adminSettingsAlert.classList.add('hidden'), 3500);
+          loadAdminData();
+          checkAuth();
+        }
+      } catch (e) {
+        alert('خطأ أثناء حفظ الإعدادات!');
+      } finally {
+        saveAdminSettingsBtn.disabled = false;
+      }
+    });
+  }
 
   // 9. السيرفرات السريعة (Presets)
   presetButtons.forEach(btn => {

@@ -16,6 +16,10 @@ function ensureLocalDb() {
   }
   if (!fs.existsSync(LOCAL_DB_FILE)) {
     const initialData = {
+      settings: {
+        maxSlots: 10,
+        weeklyPriceIQD: 40000
+      },
       users: {
         admin: {
           username: 'admin',
@@ -37,7 +41,7 @@ function readLocalDb() {
   try {
     return JSON.parse(fs.readFileSync(LOCAL_DB_FILE, 'utf8'));
   } catch (e) {
-    return { users: {}, subscriptions: {}, bots: {}, licenseKeys: {} };
+    return { settings: { maxSlots: 10 }, users: {}, subscriptions: {}, bots: {}, licenseKeys: {} };
   }
 }
 
@@ -88,7 +92,32 @@ function initFirebase() {
 
 initFirebase();
 
-// 2. دوال المستخدمين (Users)
+// 2. إعدادات المنصة وأقصى عدد للمشتركين (Settings & Max Slots)
+async function getPlatformSettings() {
+  if (isFirebaseConnected && db) {
+    const doc = await db.collection('settings').doc('config').get();
+    if (doc.exists) return doc.data();
+    const defaults = { maxSlots: 10, weeklyPriceIQD: 40000 };
+    await db.collection('settings').doc('config').set(defaults);
+    return defaults;
+  } else {
+    const data = readLocalDb();
+    if (!data.settings) data.settings = { maxSlots: 10, weeklyPriceIQD: 40000 };
+    return data.settings;
+  }
+}
+
+async function updatePlatformSettings(newSettings) {
+  if (isFirebaseConnected && db) {
+    await db.collection('settings').doc('config').set(newSettings, { merge: true });
+  } else {
+    const data = readLocalDb();
+    data.settings = { ...(data.settings || {}), ...newSettings };
+    writeLocalDb(data);
+  }
+}
+
+// 3. دوال المستخدمين (Users)
 async function getUser(username) {
   if (!username) return null;
   const cleanUsername = username.trim().toLowerCase();
@@ -102,12 +131,26 @@ async function getUser(username) {
   }
 }
 
-async function createUser(username, password, role = 'customer') {
+async function getUserByDiscordId(discordId) {
+  if (!discordId) return null;
+  if (isFirebaseConnected && db) {
+    const snapshot = await db.collection('users').where('discordId', '==', discordId).limit(1).get();
+    if (snapshot.empty) return null;
+    return snapshot.docs[0].data();
+  } else {
+    const data = readLocalDb();
+    return Object.values(data.users).find(u => u.discordId === discordId) || null;
+  }
+}
+
+async function createUser(username, password, role = 'customer', discordData = null) {
   const cleanUsername = username.trim().toLowerCase();
   const userData = {
     username: cleanUsername,
-    password: password.trim(),
+    password: password ? password.trim() : null,
     role: role,
+    discordId: discordData ? discordData.id : null,
+    discordAvatar: discordData ? discordData.avatar : null,
     createdAt: new Date().toISOString()
   };
 
@@ -121,7 +164,7 @@ async function createUser(username, password, role = 'customer') {
   return userData;
 }
 
-// 3. دوال الاشتراكات (Subscriptions)
+// 4. دوال الاشتراكات وفحص الطاقة الاستيعابية (Subscriptions & Capacity Check)
 async function getSubscription(userId) {
   if (!userId) return null;
   const cleanId = userId.trim().toLowerCase();
@@ -136,15 +179,41 @@ async function getSubscription(userId) {
   }
 }
 
+async function getActiveSubscriptionsCount() {
+  const allSubs = await getAllSubscriptions();
+  const now = new Date();
+  let count = 0;
+  allSubs.forEach(s => {
+    if (s.status === 'active' && new Date(s.expiresAt) > now) {
+      count++;
+    }
+  });
+  return count;
+}
+
 async function createOrUpdateSubscription(userId, days = 7, pricePaid = 40000) {
   const cleanId = userId.trim().toLowerCase();
   const currentSub = await getSubscription(cleanId);
-
   const now = new Date();
-  let baseDate = now;
 
-  // إذا كان الاشتراك الحالي سارياً يتم التمديد فوق المتبقي
-  if (currentSub && currentSub.status === 'active' && new Date(currentSub.expiresAt) > now) {
+  // فحص سعة البوتات المتاحة إذا كان هذا اشتراكاً جديداً وليس تمديداً
+  const isCurrentlyActive = currentSub && currentSub.status === 'active' && new Date(currentSub.expiresAt) > now;
+  if (!isCurrentlyActive) {
+    const settings = await getPlatformSettings();
+    const activeCount = await getActiveSubscriptionsCount();
+    const maxSlots = settings.maxSlots || 10;
+
+    if (activeCount >= maxSlots) {
+      return {
+        success: false,
+        isCapacityFull: true,
+        message: `عذراً! جميع مقاعد البوتات محجوزة حالياً (${activeCount}/${maxSlots}). يرجى الانتظار لحين انتهاء أحد المشتركين أو زيادة المقاعد من قبل الأدمن.`
+      };
+    }
+  }
+
+  let baseDate = now;
+  if (isCurrentlyActive) {
     baseDate = new Date(currentSub.expiresAt);
   }
 
@@ -168,7 +237,7 @@ async function createOrUpdateSubscription(userId, days = 7, pricePaid = 40000) {
     writeLocalDb(data);
   }
 
-  return subData;
+  return { success: true, subscription: subData };
 }
 
 async function setSubscriptionStatus(userId, status) {
@@ -194,7 +263,7 @@ async function getAllSubscriptions() {
   }
 }
 
-// 4. دوال أكواد التفعيل (License Keys)
+// 5. دوال أكواد التفعيل الفردية الدقيقة (Single-Use License Keys)
 async function createLicenseKey(days = 7, price = 40000) {
   const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
   const randomPart2 = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -221,7 +290,20 @@ async function createLicenseKey(days = 7, price = 40000) {
   return keyData;
 }
 
+// توليد دفعة أكواد (Bulk Generation)
+async function createBulkLicenseKeys(count = 5, days = 7, price = 40000) {
+  const keys = [];
+  for (let i = 0; i < count; i++) {
+    const k = await createLicenseKey(days, price);
+    keys.push(k);
+  }
+  return keys;
+}
+
+// استخدام الكود لمرة واحدة فقط لشخص واحد
 async function redeemLicenseKey(key, userId) {
+  if (!key) return { success: false, message: 'يرجى إدخال كود التفعيل' };
+
   const cleanKey = key.trim().toUpperCase();
   const cleanId = userId.trim().toLowerCase();
 
@@ -237,14 +319,21 @@ async function redeemLicenseKey(key, userId) {
     if (!keyData) return { success: false, message: 'كود الاشتراك غير صحيح أو غير موجود!' };
   }
 
+  // كود واحد يستخدمه شخص واحد فقط
   if (keyData.isUsed) {
-    return { success: false, message: `هذا الكود تم استخدامه مسبقاً بواسطة: ${keyData.usedBy}` };
+    return {
+      success: false,
+      message: `عذراً، هذا الكود مستخدم مسبقاً بواسطة (${keyData.usedBy}) في تاريخ ${new Date(keyData.usedAt).toLocaleDateString('ar-EG')} ولا يمكن استخدامه مرة أخرى!`
+    };
   }
 
-  // تفعيل الاشتراك لمدة الأيام المحددة
-  const newSub = await createOrUpdateSubscription(cleanId, keyData.days, keyData.price);
+  // تفعيل الاشتراك مع التحقق من سعة المقاعد المتاحة
+  const subResult = await createOrUpdateSubscription(cleanId, keyData.days, keyData.price);
+  if (!subResult.success) {
+    return subResult; // يرجع رسالة اكتمال الطاقة الاستيعابية
+  }
 
-  // تحديث حالة الكود في فايربيس
+  // وضع علامة مستخدم على الكود فوراً
   const updateData = {
     isUsed: true,
     usedBy: cleanId,
@@ -259,7 +348,11 @@ async function redeemLicenseKey(key, userId) {
     writeLocalDb(data);
   }
 
-  return { success: true, message: `تم تفعيل اشتراكك بنجاح لمدة ${keyData.days} أيام!`, subscription: newSub };
+  return {
+    success: true,
+    message: `تم تفعيل اشتراكك بنجاح لمدة ${keyData.days} أيام!`,
+    subscription: subResult.subscription
+  };
 }
 
 async function getAllLicenseKeys() {
@@ -272,7 +365,18 @@ async function getAllLicenseKeys() {
   }
 }
 
-// 5. حفظ إعدادات البوت لكل زبون (Bot Config)
+async function deleteLicenseKey(key) {
+  const cleanKey = key.trim().toUpperCase();
+  if (isFirebaseConnected && db) {
+    await db.collection('licenseKeys').doc(cleanKey).delete();
+  } else {
+    const data = readLocalDb();
+    delete data.licenseKeys[cleanKey];
+    writeLocalDb(data);
+  }
+}
+
+// 6. حفظ إعدادات البوت لكل زبون (Bot Config)
 async function getBotConfig(userId) {
   const cleanId = userId.trim().toLowerCase();
   if (isFirebaseConnected && db) {
@@ -297,15 +401,21 @@ async function saveBotConfig(userId, botData) {
 
 module.exports = {
   isFirebaseConnected: () => isFirebaseConnected,
+  getPlatformSettings,
+  updatePlatformSettings,
   getUser,
+  getUserByDiscordId,
   createUser,
   getSubscription,
+  getActiveSubscriptionsCount,
   createOrUpdateSubscription,
   setSubscriptionStatus,
   getAllSubscriptions,
   createLicenseKey,
+  createBulkLicenseKeys,
   redeemLicenseKey,
   getAllLicenseKeys,
+  deleteLicenseKey,
   getBotConfig,
   saveBotConfig
 };

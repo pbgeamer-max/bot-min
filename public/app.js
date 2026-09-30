@@ -945,8 +945,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (foundCode) {
-      msaCodeValue.textContent = foundCode;
-      msaDirectLink.href = foundLink;
+      if (!foundLink || !foundLink.includes('?otc=')) {
+        foundLink = `https://microsoft.com/link?otc=${foundCode}`;
+      }
+      if (msaCodeValue) msaCodeValue.textContent = foundCode;
+      if (msaDirectLink) msaDirectLink.href = foundLink;
       const wasHidden = msaBanner.classList.contains('hidden');
       msaBanner.classList.remove('hidden');
 
@@ -954,22 +957,24 @@ document.addEventListener('DOMContentLoaded', () => {
         msaBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     } else {
-      msaBanner.classList.add('hidden');
+      if (msaBanner) msaBanner.classList.add('hidden');
     }
   }
 
-  copyMsaCodeBtn.addEventListener('click', () => {
-    const code = msaCodeValue.textContent;
-    if (code && code !== '----') {
-      navigator.clipboard.writeText(code).then(() => {
-        const originalHtml = copyMsaCodeBtn.innerHTML;
-        copyMsaCodeBtn.innerHTML = '<i class="fa-solid fa-check"></i> تم النسخ!';
-        setTimeout(() => {
-          copyMsaCodeBtn.innerHTML = originalHtml;
-        }, 2000);
-      });
-    }
-  });
+  if (copyMsaCodeBtn) {
+    copyMsaCodeBtn.addEventListener('click', () => {
+      const code = msaCodeValue ? msaCodeValue.textContent : '';
+      if (code && code !== '----') {
+        navigator.clipboard.writeText(code).then(() => {
+          const originalHtml = copyMsaCodeBtn.innerHTML;
+          copyMsaCodeBtn.innerHTML = '<i class="fa-solid fa-check"></i> تم النسخ!';
+          setTimeout(() => {
+            copyMsaCodeBtn.innerHTML = originalHtml;
+          }, 2000);
+        });
+      }
+    });
+  }
 
   function updateUptimeDisplay() {
     if (statusText.textContent.includes('متصل (Online)')) {

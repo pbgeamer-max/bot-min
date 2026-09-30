@@ -227,7 +227,7 @@ async function initDiscordBot() {
       // 5. أمر تشغيل البوت (/start)
       if (commandName === 'start') {
         await interaction.deferReply({ ephemeral: true });
-        const result = startBotForUser(user.username);
+        const result = await startBotForUser(user.username);
         return interaction.editReply({ content: `🚀 ${result.message}` });
       }
 

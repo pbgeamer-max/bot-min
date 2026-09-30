@@ -418,7 +418,7 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
   };
 
   await saveBotConfig(targetUser, botConfig);
-  const result = startBotForUser(targetUser, botConfig);
+  const result = await startBotForUser(targetUser, botConfig);
   res.json(result);
 });
 

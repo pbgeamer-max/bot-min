@@ -413,6 +413,46 @@ async function saveBotConfig(userId, botData) {
   }
 }
 
+// 7. حفظ واسترجاع ملفات التوثيق الدائمة لحسابات إكسبوكس (Xbox Live Auth Cache)
+async function saveAuthCache(userId, authType, filesObj) {
+  const cleanId = userId.trim().toLowerCase();
+  const docId = `${cleanId}_${authType}`;
+  if (isFirebaseConnected && db) {
+    await db.collection('auth_caches').doc(docId).set({
+      userId: cleanId,
+      authType,
+      files: filesObj,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  } else {
+    const data = readLocalDb();
+    data.authCaches = data.authCaches || {};
+    data.authCaches[docId] = {
+      userId: cleanId,
+      authType,
+      files: filesObj,
+      updatedAt: new Date().toISOString()
+    };
+    writeLocalDb(data);
+  }
+}
+
+async function loadAuthCache(userId, authType) {
+  const cleanId = userId.trim().toLowerCase();
+  const docId = `${cleanId}_${authType}`;
+  if (isFirebaseConnected && db) {
+    const doc = await db.collection('auth_caches').doc(docId).get();
+    if (doc.exists) return doc.data().files || null;
+    return null;
+  } else {
+    const data = readLocalDb();
+    if (data.authCaches && data.authCaches[docId]) {
+      return data.authCaches[docId].files || null;
+    }
+    return null;
+  }
+}
+
 module.exports = {
   isFirebaseConnected: () => isFirebaseConnected,
   getPlatformSettings,
@@ -432,5 +472,8 @@ module.exports = {
   getAllLicenseKeys,
   deleteLicenseKey,
   getBotConfig,
-  saveBotConfig
+  saveBotConfig,
+  saveAuthCache,
+  loadAuthCache
 };
+

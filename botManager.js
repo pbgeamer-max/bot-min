@@ -3,6 +3,7 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { GoalNear } = goals;
 const path = require('path');
 const fs = require('fs');
+const { saveAuthCache, loadAuthCache } = require('./firebase');
 
 let bedrock = null;
 try {
@@ -10,6 +11,47 @@ try {
 } catch (e) {
   console.warn('[BotManager] bedrock-protocol could not be loaded:', e.message);
 }
+
+// دوال مساعدة لنسخ واسترجاع جلسات التوثيق الدائمة لحسابات إكسبوكس
+async function backupAuthCache(userId, authType, folderPath) {
+  try {
+    if (!fs.existsSync(folderPath)) return;
+    const fileNames = fs.readdirSync(folderPath);
+    if (!fileNames || fileNames.length === 0) return;
+    const filesObj = {};
+    for (const file of fileNames) {
+      const fullPath = path.join(folderPath, file);
+      if (fs.statSync(fullPath).isFile()) {
+        filesObj[file] = fs.readFileSync(fullPath, 'utf8');
+      }
+    }
+    if (Object.keys(filesObj).length > 0) {
+      await saveAuthCache(userId, authType, filesObj);
+    }
+  } catch (e) {
+    console.warn(`[Auth Cache] تعذر حفظ ملفات التوثيق في فايربيس لـ ${userId}:`, e.message);
+  }
+}
+
+async function restoreAuthCache(userId, authType, folderPath) {
+  try {
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+    }
+    const currentFiles = fs.readdirSync(folderPath);
+    if (currentFiles && currentFiles.length > 0) return;
+    const cachedFiles = await loadAuthCache(userId, authType);
+    if (cachedFiles && typeof cachedFiles === 'object') {
+      for (const [fileName, content] of Object.entries(cachedFiles)) {
+        fs.writeFileSync(path.join(folderPath, fileName), content, 'utf8');
+      }
+      console.log(`[Auth Cache] تم استرجاع ملفات توثيق Xbox السحابية بنجاح لـ ${userId}!`);
+    }
+  } catch (e) {
+    console.warn(`[Auth Cache] تعذر استرجاع ملفات التوثيق من فايربيس لـ ${userId}:`, e.message);
+  }
+}
+
 
 // قاموس لتخزين كائنات البوتات الشغالة لكل مستخدم
 // Key: userId -> Value: BotInstanceData
@@ -75,7 +117,7 @@ function parseReason(reason) {
 }
 
 // 1. بدء تشغيل البوت للمستخدم
-function startBotForUser(userId, newConfig = {}) {
+async function startBotForUser(userId, newConfig = {}) {
   const userData = getOrCreateUserBotData(userId);
 
   if (userData.bot) {
@@ -113,6 +155,9 @@ function startBotForUser(userId, newConfig = {}) {
       fs.mkdirSync(bedrockAuthFolder, { recursive: true });
     }
 
+    // استرجاع ملفات التوثيق السحابية إن وجدت لتسجيل الدخول التلقائي بدون طلب كود
+    await restoreAuthCache(userData.userId, 'bedrock', bedrockAuthFolder);
+
     try {
       const client = bedrock.createClient({
         host: host,
@@ -122,17 +167,16 @@ function startBotForUser(userId, newConfig = {}) {
         profilesFolder: bedrockAuthFolder,
         onMsaCode: (data) => {
           const code = data.user_code || data.userCode;
-          const url = data.verification_uri || data.verificationUri || 'https://microsoft.com/link';
+          const directLink = `https://microsoft.com/link?otc=${code}`;
           userData.msaCode = {
             code,
-            url,
-            link: url,
+            url: directLink,
+            link: directLink,
             expiresAt: Date.now() + ((data.expires_in || 900) * 1000)
           };
-          addBotLog(userData, 'auth', `🔐 [حساب إكسبوكس مجاني] مطلوب تأكيد الكود لمرة واحدة:`);
-          addBotLog(userData, 'auth', `1️⃣ افتح الرابط: ${url}`);
-          addBotLog(userData, 'auth', `2️⃣ أدخل الكود: ${code}`);
-          addBotLog(userData, 'auth', `🔗 رابط مباشر: https://microsoft.com/link?otc=${code}`);
+          addBotLog(userData, 'auth', `🔐 [حساب إكسبوكس] مطلوب تأكيد الدخول لمرة واحدة فقط:`);
+          addBotLog(userData, 'auth', `🔗 اضغط هنا لتأكيد حساب إكسبوكس مباشرة بنقرة واحدة: ${directLink}`);
+          addBotLog(userData, 'auth', `✨ يتم إدخال الكود تلقائياً بمجرد فتح الرابط، فقط اضغط على "متابعة" في مايكروسوفت.`);
         }
       });
 
@@ -405,7 +449,13 @@ function setupBedrockBotEvents(userData, client) {
     userData.connectedSince = new Date();
     userData.hasLoggedIn = true;
     userData.msaCode = null;
-    addBotLog(userData, 'success', `🟢 تم الاتصال ودخول سيرفر DonutSMP (Bedrock Edition) بنجاح بحساب إكسبوكس المجاني!`);
+    addBotLog(userData, 'success', `🟢 تم الاتصال ودخول سيرفر DonutSMP (Bedrock Edition) بنجاح بحساب إكسبوكس!`);
+
+    // حفظ كاش التوثيق سحابياً في فايربيس لكي لا يطلب تسجيل الدخول مرة ثانية أبداً
+    const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${userData.userId}`);
+    setTimeout(() => {
+      backupAuthCache(userData.userId, 'bedrock', bedrockAuthFolder);
+    }, 2000);
 
     // تنفيذ الأمر التلقائي (مثل /smp)
     const conf = userData.config;

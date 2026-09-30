@@ -383,13 +383,19 @@ body {
   color: #fbbf24;
 }
 
-/* Microsoft Auth Banner */
+/* Xbox Live One-Click Auth Banner */
 .alert-banner-msa {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(99, 102, 241, 0.25));
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, rgba(16, 124, 16, 0.25), rgba(6, 78, 59, 0.35));
+  border: 1px solid rgba(74, 222, 128, 0.45);
   border-radius: var(--radius-lg);
-  padding: 18px 22px;
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.2);
+  padding: 18px 24px;
+  box-shadow: 0 8px 30px rgba(16, 124, 16, 0.25);
+  animation: pulseXbox 3s infinite ease-in-out;
+}
+
+@keyframes pulseXbox {
+  0%, 100% { border-color: rgba(74, 222, 128, 0.45); }
+  50% { border-color: rgba(74, 222, 128, 0.85); box-shadow: 0 8px 35px rgba(34, 197, 94, 0.35); }
 }
 
 .msa-banner-content {
@@ -400,16 +406,17 @@ body {
 }
 
 .msa-icon {
-  font-size: 36px;
-  color: #60a5fa;
+  font-size: 38px;
+  color: #4ade80;
 }
 
 .msa-text {
   flex: 1;
+  min-width: 250px;
 }
 
 .msa-text h4 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   margin-bottom: 4px;
   color: #fff;
@@ -417,30 +424,14 @@ body {
 
 .msa-text p {
   font-size: 13px;
-  color: #cbd5e1;
-  margin-bottom: 8px;
+  color: #e2e8f0;
+  margin-bottom: 6px;
+  line-height: 1.5;
 }
 
-.msa-code-box {
-  display: inline-flex;
+.msa-action {
+  display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 6px 14px;
-  border-radius: 8px;
-}
-
-.msa-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.msa-code-box strong {
-  font-family: monospace;
-  font-size: 18px;
-  color: #fbbf24;
-  letter-spacing: 2px;
 }
 
 /* Quick Presets Bar */
@@ -580,49 +571,6 @@ body {
   margin-top: 2px;
 }
 
-/* Microsoft Signup Helper Banner */
-.ms-signup-banner {
-  background: rgba(14, 165, 233, 0.08);
-  border: 1px solid rgba(14, 165, 233, 0.25);
-  border-radius: 12px;
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 10px 0 16px 0;
-}
-
-.ms-signup-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.ms-signup-info i {
-  font-size: 24px;
-  color: #38bdf8;
-}
-
-.ms-signup-info strong {
-  display: block;
-  font-size: 13px;
-  color: #f0f9ff;
-}
-
-.ms-signup-info p {
-  margin: 0;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.ms-signup-btn {
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 8px 14px;
-  border-radius: 8px;
-}
 
 /* Dashboard Grid */
 .dashboard-grid {

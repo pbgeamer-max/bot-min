@@ -67,8 +67,22 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Unauthorized', message: 'يرجى تسجيل الدخول أولاً' });
 }
 
+function isAdminUser(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const username = (user.username || '').toLowerCase().trim();
+  if (username === 'admin' || username === 'f1iq') return true;
+  const adminDiscordIds = [
+    '684580786858623132',
+    process.env.ADMIN_DISCORD_ID
+  ].filter(Boolean).map(id => String(id).trim());
+  if (user.discordId && adminDiscordIds.includes(String(user.discordId))) return true;
+  return false;
+}
+
 function requireAdmin(req, res, next) {
-  if (req.session && req.session.user && req.session.user.role === 'admin') {
+  if (req.session && req.session.user && isAdminUser(req.session.user)) {
+    req.session.user.role = 'admin';
     return next();
   }
   return res.status(403).json({ error: 'Forbidden', message: 'صلاحيات الأدمن فقط مطلوبة لهذه العملية' });
@@ -78,7 +92,8 @@ async function requireActiveSub(req, res, next) {
   const user = req.session.user;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-  if (user.role === 'admin') {
+  if (isAdminUser(user)) {
+    user.role = 'admin';
     return next();
   }
 
@@ -272,13 +287,7 @@ app.get('/api/auth/me', async (req, res) => {
 
   const user = req.session.user;
 
-  // التأكد من صلاحية الأدمن عبر Discord ID
-  const adminDiscordIds = [
-    '684580786858623132',
-    process.env.ADMIN_DISCORD_ID
-  ].filter(Boolean).map(id => String(id).trim());
-
-  if (user.discordId && adminDiscordIds.includes(String(user.discordId))) {
+  if (isAdminUser(user)) {
     user.role = 'admin';
   }
   let subscription = null;

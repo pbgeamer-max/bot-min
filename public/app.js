@@ -302,6 +302,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     userNameSpan.textContent = currentUser.username;
 
+    if (botUsernameInput && !botUsernameInput.value) {
+      botUsernameInput.value = `AFK_${currentUser.username}`;
+    }
+
     // تمييز الأدمن
     if (currentUser.role === 'admin') {
       openAdminBtn.classList.remove('hidden');
@@ -1128,26 +1132,31 @@ document.addEventListener('DOMContentLoaded', () => {
   botConnectForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const edition = botEditionSelect ? botEditionSelect.value : 'bedrock';
-    const host = serverHostInput.value.trim();
-    const port = serverPortInput.value.trim();
-    const username = botUsernameInput.value.trim();
-    const password = authPasswordInput.value.trim();
-    const version = mcVersionSelect.value;
-    const auth = authModeSelect.value;
-    const autoCommand = autoCommandInput.value.trim();
-    const autoCommandDelay = autoCommandDelayInput.value.trim();
-
-    const targetX = targetXInput.value !== '' ? targetXInput.value : null;
-    const targetY = targetYInput.value !== '' ? targetYInput.value : null;
-    const targetZ = targetZInput.value !== '' ? targetZInput.value : null;
-    const autoWalkToPos = autoWalkCheck.checked;
-    const lockPosition = lockPositionCheck.checked;
-
-    if (!host) {
-      alert('يرجى إدخال عنوان IP الخاص بالسيرفر!');
-      return;
+    const edition = 'bedrock';
+    const host = (serverHostInput && serverHostInput.value) ? serverHostInput.value.trim() : 'donutsmp.net';
+    const port = (serverPortInput && serverPortInput.value) ? serverPortInput.value.trim() : '19132';
+    
+    let username = (botUsernameInput && botUsernameInput.value) ? botUsernameInput.value.trim() : '';
+    if (!username && currentUser && currentUser.username) {
+      username = `AFK_${currentUser.username}`;
+      if (botUsernameInput) botUsernameInput.value = username;
     }
+    if (!username) {
+      username = 'Donut_AFK';
+      if (botUsernameInput) botUsernameInput.value = username;
+    }
+
+    const password = (authPasswordInput && authPasswordInput.value) ? authPasswordInput.value.trim() : null;
+    const version = (mcVersionSelect && mcVersionSelect.value) ? mcVersionSelect.value : 'auto';
+    const auth = (authModeSelect && authModeSelect.value) ? authModeSelect.value : 'microsoft';
+    const autoCommand = (autoCommandInput && autoCommandInput.value) ? autoCommandInput.value.trim() : '/smp';
+    const autoCommandDelay = (autoCommandDelayInput && autoCommandDelayInput.value) ? autoCommandDelayInput.value.trim() : '7';
+
+    const targetX = targetXInput && targetXInput.value !== '' ? targetXInput.value : null;
+    const targetY = targetYInput && targetYInput.value !== '' ? targetYInput.value : null;
+    const targetZ = targetZInput && targetZInput.value !== '' ? targetZInput.value : null;
+    const autoWalkToPos = autoWalkCheck ? autoWalkCheck.checked : false;
+    const lockPosition = lockPositionCheck ? lockPositionCheck.checked : false;
 
     connectBtn.disabled = true;
     connectBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الاتصال...';
@@ -1173,15 +1182,31 @@ document.addEventListener('DOMContentLoaded', () => {
           autoCommandDelay
         })
       });
+
       const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        alert(data.message || data.error || 'تعذر تشغيل البوت!');
+      }
       fetchBotStatus();
     } catch (err) {
-      alert('خطأ في إرسال طلب الاتصال!');
+      alert('خطأ في إرسال طلب الاتصال بالسيرفر: ' + (err.message || err));
     } finally {
       connectBtn.disabled = false;
       connectBtn.innerHTML = '<i class="fa-solid fa-play"></i> <span>بدء تشغيل البوت (Connect)</span>';
     }
   });
+
+  if (connectBtn) {
+    connectBtn.addEventListener('click', (e) => {
+      if (botConnectForm) {
+        if (botConnectForm.requestSubmit) {
+          botConnectForm.requestSubmit();
+        } else {
+          botConnectForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      }
+    });
+  }
 
   // 15. فصل البوت
   disconnectBtn.addEventListener('click', async () => {

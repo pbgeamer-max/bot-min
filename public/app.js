@@ -947,7 +947,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (foundCode) {
       msaCodeValue.textContent = foundCode;
       msaDirectLink.href = foundLink;
+      const wasHidden = msaBanner.classList.contains('hidden');
       msaBanner.classList.remove('hidden');
+
+      if (wasHidden) {
+        msaBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     } else {
       msaBanner.classList.add('hidden');
     }

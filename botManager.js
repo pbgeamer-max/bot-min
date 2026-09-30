@@ -446,24 +446,37 @@ function setupBedrockBotEvents(userData, client) {
     userData.botStatus = 'disconnected';
     userData.msaCode = null;
     addBotLog(userData, 'warn', `⚠️ تم طرد البوت من سيرفر البيدروك. السبب: ${reason}`);
+    const shouldReconnect = userData.hasLoggedIn && !userData.userDisconnected;
     cleanUpBot(userData);
-    scheduleReconnect(userData);
+    if (shouldReconnect) {
+      scheduleReconnect(userData);
+    }
   });
 
   client.on('close', () => {
     userData.botStatus = 'disconnected';
     userData.msaCode = null;
     addBotLog(userData, 'warn', 'انقطع الاتصال بسيرفر البيدروك.');
+    const shouldReconnect = userData.hasLoggedIn && !userData.userDisconnected;
     cleanUpBot(userData);
-    scheduleReconnect(userData);
+    if (shouldReconnect) {
+      scheduleReconnect(userData);
+    }
   });
 
   client.on('error', (err) => {
     userData.botStatus = 'disconnected';
     userData.msaCode = null;
-    addBotLog(userData, 'error', `خطأ في اتصال البيدروك: ${err.message || err}`);
+    const errStr = (err && (err.message || err.toString())) || 'خطأ غير معروف';
+    addBotLog(userData, 'error', `خطأ في اتصال البيدروك: ${errStr}`);
+    if (errStr.includes('terminated')) {
+      addBotLog(userData, 'warn', 'انتهت مدة كود المصادقة لعدم إدخاله في موقع مايكروسوفت. يرجى الضغط على Connect وإدخال الكود الجديد في صفحة مايكروسوفت.');
+    }
+    const shouldReconnect = userData.hasLoggedIn && !userData.userDisconnected;
     cleanUpBot(userData);
-    scheduleReconnect(userData);
+    if (shouldReconnect) {
+      scheduleReconnect(userData);
+    }
   });
 }
 

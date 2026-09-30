@@ -184,10 +184,17 @@ async function initDiscordBot() {
         });
       }
 
-      // فحص سريان الاشتراك
+      const adminDiscordIds = [
+        '684580786858623132',
+        process.env.ADMIN_DISCORD_ID
+      ].filter(Boolean).map(id => String(id).trim());
+
+      const isAdmin = adminDiscordIds.includes(String(discordUser.id)) || (user && user.role === 'admin');
+
+      // فحص سريان الاشتراك (يتم تخطيه تلقائياً للأدمن)
       const sub = await getSubscription(user.username);
       const now = new Date();
-      const isSubActive = sub && sub.status === 'active' && new Date(sub.expiresAt) > now;
+      const isSubActive = isAdmin || (sub && sub.status === 'active' && new Date(sub.expiresAt) > now);
 
       if (!isSubActive) {
         return interaction.reply({

@@ -9,6 +9,7 @@ const {
   getUser,
   getUserByDiscordId,
   createUser,
+  updateUserRole,
   getSubscription,
   getActiveSubscriptionsCount,
   createOrUpdateSubscription,
@@ -224,17 +225,32 @@ app.get('/api/auth/discord/callback', async (req, res) => {
     });
     const discordUser = await userResponse.json();
 
+    const adminDiscordIds = [
+      '684580786858623132',
+      process.env.ADMIN_DISCORD_ID
+    ].filter(Boolean).map(id => String(id).trim());
+
+    const isAdmin = adminDiscordIds.includes(String(discordUser.id));
+    const targetRole = isAdmin ? 'admin' : 'customer';
+
     // البحث عن مستخدم بنفس الـ Discord ID
     let user = await getUserByDiscordId(discordUser.id);
     if (!user) {
       const cleanUsername = discordUser.username.toLowerCase().replace(/[^a-z0-9_]/g, '') || `dc_${discordUser.id.substring(0, 6)}`;
-      user = await createUser(cleanUsername, 'dc_oauth_' + Math.random(), 'customer', {
+      user = await createUser(cleanUsername, 'dc_oauth_' + Math.random(), targetRole, {
         id: discordUser.id,
         avatar: discordUser.avatar
       });
+    } else if (isAdmin && user.role !== 'admin') {
+      user.role = 'admin';
+      await updateUserRole(user.username, 'admin');
     }
 
-    req.session.user = { username: user.username, role: user.role || 'customer', discordId: discordUser.id };
+    req.session.user = {
+      username: user.username,
+      role: isAdmin ? 'admin' : (user.role || 'customer'),
+      discordId: discordUser.id
+    };
     res.redirect('/');
   } catch (err) {
     console.error('[Discord OAuth Error]:', err);
@@ -255,6 +271,16 @@ app.get('/api/auth/me', async (req, res) => {
   }
 
   const user = req.session.user;
+
+  // التأكد من صلاحية الأدمن عبر Discord ID
+  const adminDiscordIds = [
+    '684580786858623132',
+    process.env.ADMIN_DISCORD_ID
+  ].filter(Boolean).map(id => String(id).trim());
+
+  if (user.discordId && adminDiscordIds.includes(String(user.discordId))) {
+    user.role = 'admin';
+  }
   let subscription = null;
   let timeLeftSeconds = 0;
 

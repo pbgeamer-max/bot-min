@@ -164,6 +164,20 @@ async function createUser(username, password, role = 'customer', discordData = n
   return userData;
 }
 
+async function updateUserRole(username, newRole) {
+  if (!username) return;
+  const cleanUsername = username.trim().toLowerCase();
+  if (isFirebaseConnected && db) {
+    await db.collection('users').doc(cleanUsername).set({ role: newRole }, { merge: true });
+  } else {
+    const data = readLocalDb();
+    if (data.users[cleanUsername]) {
+      data.users[cleanUsername].role = newRole;
+      writeLocalDb(data);
+    }
+  }
+}
+
 // 4. دوال الاشتراكات وفحص الطاقة الاستيعابية (Subscriptions & Capacity Check)
 async function getSubscription(userId) {
   if (!userId) return null;
@@ -406,6 +420,7 @@ module.exports = {
   getUser,
   getUserByDiscordId,
   createUser,
+  updateUserRole,
   getSubscription,
   getActiveSubscriptionsCount,
   createOrUpdateSubscription,

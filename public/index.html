@@ -198,9 +198,12 @@
               </button>
             </div>
           </div>
-          <div class="msa-action">
+          <div class="msa-action" style="display: flex; flex-direction: column; gap: 8px;">
             <a id="msaDirectLink" href="https://microsoft.com/link" target="_blank" class="btn btn-primary">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> فتح صفحة الربط
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> فتح صفحة إدخال الكود
+            </a>
+            <a href="https://signup.live.com/" target="_blank" class="btn btn-sm btn-outline-info" style="font-size: 0.8rem; text-align: center;">
+              <i class="fa-brands fa-microsoft"></i> ليس لديك حساب؟ إنشاء حساب جديد مجاناً
             </a>
           </div>
         </div>
@@ -208,19 +211,13 @@
 
       <!-- Quick Server Presets Bar -->
       <div class="presets-bar glass-panel">
-        <span class="presets-title"><i class="fa-solid fa-bolt"></i> إعدادات سريعة لسيرفرات DonutSMP:</span>
+        <span class="presets-title"><i class="fa-solid fa-bolt"></i> موقع سيرفر DonutSMP (بيدروك 19132):</span>
         <div class="presets-buttons">
-          <button type="button" class="preset-btn active-preset" data-preset="donutsmp-bedrock">
-            <i class="fa-solid fa-shield-halved" style="color: #4ade80;"></i> DonutSMP (بيدروك - مجاني بدون شراء اللعبة 19132)
+          <button type="button" class="preset-btn active-preset" data-preset="donutsmp-us" data-host="donutsmp.net">
+            <i class="fa-solid fa-earth-americas" style="color: #4ade80;"></i> DonutSMP الرئيسي (US)
           </button>
-          <button type="button" class="preset-btn" data-preset="donutsmp-bedrock-eu">
-            <i class="fa-solid fa-earth-europe" style="color: #60a5fa;"></i> DonutSMP EU (بيدروك 19132)
-          </button>
-          <button type="button" class="preset-btn" data-preset="donutsmp-java">
-            <i class="fa-solid fa-coffee"></i> DonutSMP (جافا أصلي 25565)
-          </button>
-          <button type="button" class="preset-btn" data-preset="aternos">
-            <i class="fa-solid fa-server"></i> سيرفر مكرك (Offline)
+          <button type="button" class="preset-btn" data-preset="donutsmp-eu" data-host="EU.donutsmp.net">
+            <i class="fa-solid fa-earth-europe" style="color: #60a5fa;"></i> DonutSMP الأوروبي (EU)
           </button>
         </div>
       </div>
@@ -353,65 +350,66 @@
           </div>
 
           <form id="botConnectForm" class="bot-form">
+            <!-- 1. تحديد موقع السيرفر بدون إدخال IP -->
             <div class="form-row">
               <div class="input-group flex-1">
-                <label for="botEdition"><i class="fa-solid fa-gamepad"></i> نسخة اللعبة (Edition) *</label>
-                <select id="botEdition">
-                  <option value="bedrock" selected>🟢 Bedrock (بيدروك 19132) - حساب إكسبوكس مجاني 100% بدون شراء اللعبة (موصى به لـ DonutSMP)</option>
-                  <option value="java">☕ Java (جافا 25565) - حساب مايكروسوفت أصلي (يتطلب شراء اللعبة بـ 30$)</option>
-                </select>
-                <small id="editionHint" style="font-size: 0.82rem; margin-top: 5px; color: #4ade80; display: flex; align-items: center; gap: 6px;">
-                  <i class="fa-solid fa-circle-check"></i> الخيار الأفضل والموصى به لـ DonutSMP: يتيح للزبائن استخدام حساب إكسبوكس مجاني دون شراء اللعبة!
+                <label><i class="fa-solid fa-server"></i> تحديد موقع سيرفر DonutSMP (IP ثابت وتلقائي) *</label>
+                <div class="server-locations-grid">
+                  <button type="button" class="server-loc-btn active" data-host="donutsmp.net" data-region="us">
+                    <span class="loc-badge-top">الأساسي</span>
+                    <i class="fa-solid fa-earth-americas loc-icon-lg"></i>
+                    <div class="loc-text">
+                      <strong>DonutSMP الرئيسي (US)</strong>
+                      <small>donutsmp.net (بيدروك 19132)</small>
+                    </div>
+                  </button>
+                  <button type="button" class="server-loc-btn" data-host="EU.donutsmp.net" data-region="eu">
+                    <span class="loc-badge-top eu-badge">أوروبا</span>
+                    <i class="fa-solid fa-earth-europe loc-icon-lg"></i>
+                    <div class="loc-text">
+                      <strong>DonutSMP الأوروبي (EU)</strong>
+                      <small>EU.donutsmp.net (بيدروك 19132)</small>
+                    </div>
+                  </button>
+                </div>
+                <!-- الحقول مخفية لأن الآيبي والبورت ثابتان تلقائياً للبيدروك -->
+                <input type="hidden" id="serverHost" value="donutsmp.net">
+                <input type="hidden" id="serverPort" value="19132">
+                <input type="hidden" id="botEdition" value="bedrock">
+                <input type="hidden" id="authMode" value="microsoft">
+                <input type="hidden" id="mcVersion" value="auto">
+              </div>
+            </div>
+
+            <!-- 2. زر إنشاء حساب مايكروسوفت مجاني -->
+            <div class="ms-signup-banner glass-panel-sub">
+              <div class="ms-signup-info">
+                <i class="fa-brands fa-microsoft"></i>
+                <div>
+                  <strong>ليس لديك حساب مايكروسوفت أو إكسبوكس؟</strong>
+                  <p>يمكنك عمل حساب جديد مجاناً 100% بدون شراء ماينكرافت ($0):</p>
+                </div>
+              </div>
+              <a href="https://signup.live.com/" target="_blank" class="btn btn-outline-info ms-signup-btn">
+                <i class="fa-solid fa-user-plus"></i> إنشاء حساب مايكروسوفت جديد (مجاناً)
+              </a>
+            </div>
+
+            <!-- 3. اسم البوت / الحساب -->
+            <div class="form-row">
+              <div class="input-group flex-1">
+                <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (GamerTag أو اسم الحساب) *</label>
+                <input type="text" id="botUsername" placeholder="مثال: DonutAFK_Bot" required>
+                <small style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
+                  * عند الضغط على اتصال، سيظهر لك كود التفعيل لتأكيد حساب مايكروسوفت لمرة واحدة فقط.
                 </small>
               </div>
             </div>
 
+            <!-- 4. أمر الدخول التلقائي -->
             <div class="form-row">
               <div class="input-group flex-2">
-                <label for="serverHost"><i class="fa-solid fa-network-wired"></i> عنوان السيرفر (IP / Domain) *</label>
-                <input type="text" id="serverHost" placeholder="مثال: donutsmp.net أو EU.donutsmp.net" value="donutsmp.net" required>
-              </div>
-              <div class="input-group flex-1">
-                <label for="serverPort"><i class="fa-solid fa-plug"></i> البورت (Port)</label>
-                <input type="number" id="serverPort" placeholder="19132" value="19132">
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="input-group flex-1">
-                <label for="botUsername"><i class="fa-solid fa-user"></i> اسم البوت (أو بريد مايكروسوفت)</label>
-                <input type="text" id="botUsername" placeholder="AFK_Bot" required>
-              </div>
-              <div class="input-group flex-1">
-                <label for="authPassword"><i class="fa-solid fa-key"></i> باسورد AuthMe (اختياري)</label>
-                <input type="password" id="authPassword" placeholder="كلمة مرور السيرفر المكرك">
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="input-group flex-1">
-                <label for="authMode"><i class="fa-solid fa-shield-halved"></i> نوع المصادقة (Auth)</label>
-                <select id="authMode">
-                  <option value="microsoft">حساب أصلي رسمي (Microsoft - لسيرفرات DonutSMP)</option>
-                  <option value="offline">سيرفر مكرك (Offline / Cracked)</option>
-                </select>
-              </div>
-
-              <div class="input-group flex-1">
-                <label for="mcVersion"><i class="fa-solid fa-code-branch"></i> إصدار Minecraft</label>
-                <select id="mcVersion">
-                  <option value="auto">تعرف تلقائي (Auto Detect)</option>
-                  <option value="1.20.4">1.20.4</option>
-                  <option value="1.20.2">1.20.2</option>
-                  <option value="1.20.1">1.20.1</option>
-                  <option value="1.19.4">1.19.4</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="input-group flex-2">
-                <label for="autoCommandInput"><i class="fa-solid fa-terminal"></i> أمر تلقائي لدخول الـ SMP بعد الدخول للوبي</label>
+                <label for="autoCommandInput"><i class="fa-solid fa-terminal"></i> أمر تلقائي لدخول الـ SMP بعد اللوبي</label>
                 <input type="text" id="autoCommandInput" placeholder="/smp" value="/smp">
               </div>
               <div class="input-group flex-1">
@@ -516,6 +514,20 @@
             <span class="stat-num" id="adminDbStatus">Firebase 🟢</span>
             <span class="stat-desc">قاعدة البيانات السحابية</span>
           </div>
+        </div>
+
+        <!-- Admin Emergency Actions: Stop All Bots -->
+        <div class="admin-emergency-bar glass-panel-sub" style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0 20px 0; padding: 14px 20px; border-radius: 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <i class="fa-solid fa-triangle-exclamation" style="color: #ef4444; font-size: 1.5rem;"></i>
+            <div>
+              <strong style="color: #fca5a5; display: block; font-size: 1rem;">إيقاف طوارئ لكافة البوتات (Kill Switch):</strong>
+              <span style="font-size: 0.85rem; color: #cbd5e1;">فصل وإيقاف جميع بوتات المستخدمين الشغالة حالياً دفعة واحدة فوراً.</span>
+            </div>
+          </div>
+          <button type="button" id="adminStopAllBotsBtn" class="btn btn-danger" style="white-space: nowrap; font-weight: bold; box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);">
+            <i class="fa-solid fa-power-off"></i> إيقاف جميع البوتات الآن
+          </button>
         </div>
 
         <!-- Admin Navigation Tabs -->

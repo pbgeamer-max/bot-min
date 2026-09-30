@@ -474,6 +474,31 @@ document.addEventListener('DOMContentLoaded', () => {
   if (refreshSubsBtn) refreshSubsBtn.addEventListener('click', loadAdminData);
   if (refreshKeysBtn) refreshKeysBtn.addEventListener('click', loadAdminKeys);
 
+  const adminStopAllBotsBtn = document.getElementById('adminStopAllBotsBtn');
+  if (adminStopAllBotsBtn) {
+    adminStopAllBotsBtn.addEventListener('click', async () => {
+      if (!confirm('⚠️ تحذير طوارئ: هل أنت متأكد من رغبتك في فصل وإيقاف جميع البوتات الشغالة حالياً لجميع المستخدمين؟')) {
+        return;
+      }
+
+      adminStopAllBotsBtn.disabled = true;
+      adminStopAllBotsBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري إيقاف البوتات...';
+
+      try {
+        const res = await fetch('/api/admin/bots/stop-all', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || 'تم إيقاف جميع البوتات بنجاح!');
+        loadAdminData();
+        fetchBotStatus();
+      } catch (err) {
+        alert('خطأ أثناء إرسال طلب إيقاف البوتات!');
+      } finally {
+        adminStopAllBotsBtn.disabled = false;
+        adminStopAllBotsBtn.innerHTML = '<i class="fa-solid fa-power-off"></i> إيقاف جميع البوتات الآن';
+      }
+    });
+  }
+
   async function loadAdminData() {
     try {
       const [resOverview, resSubs] = await Promise.all([
@@ -722,54 +747,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 9. السيرفرات السريعة (Presets)
+  // 9. اختيار موقع سيرفر DonutSMP (Fixed IP - Region Selector)
+  const serverLocButtons = document.querySelectorAll('.server-loc-btn');
+
+  function setServerLocation(host) {
+    const cleanHost = (host || 'donutsmp.net').trim();
+    if (serverHostInput) serverHostInput.value = cleanHost;
+    if (serverPortInput) serverPortInput.value = '19132';
+
+    serverLocButtons.forEach(b => {
+      const match = b.dataset.host.toLowerCase() === cleanHost.toLowerCase();
+      b.classList.toggle('active', match);
+    });
+
+    presetButtons.forEach(b => {
+      const match = b.dataset.host && b.dataset.host.toLowerCase() === cleanHost.toLowerCase();
+      b.classList.toggle('active-preset', match);
+    });
+  }
+
+  serverLocButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      setServerLocation(btn.dataset.host);
+    });
+  });
+
   presetButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      const preset = btn.dataset.preset;
-      presetButtons.forEach(b => b.classList.remove('active-preset'));
-      btn.classList.add('active-preset');
-
-      if (preset === 'donutsmp-bedrock') {
-        if (botEditionSelect) botEditionSelect.value = 'bedrock';
-        serverHostInput.value = 'donutsmp.net';
-        serverPortInput.value = '19132';
-        authModeSelect.value = 'microsoft';
-        mcVersionSelect.value = 'auto';
-        autoCommandInput.value = '/smp';
-        autoCommandDelayInput.value = '7';
-      } else if (preset === 'donutsmp-bedrock-eu') {
-        if (botEditionSelect) botEditionSelect.value = 'bedrock';
-        serverHostInput.value = 'EU.donutsmp.net';
-        serverPortInput.value = '19132';
-        authModeSelect.value = 'microsoft';
-        mcVersionSelect.value = 'auto';
-        autoCommandInput.value = '/smp';
-        autoCommandDelayInput.value = '7';
-      } else if (preset === 'donutsmp-java' || preset === 'donutsmp') {
-        if (botEditionSelect) botEditionSelect.value = 'java';
-        serverHostInput.value = 'donutsmp.net';
-        serverPortInput.value = '25565';
-        authModeSelect.value = 'microsoft';
-        mcVersionSelect.value = 'auto';
-        autoCommandInput.value = '/smp';
-        autoCommandDelayInput.value = '7';
-      } else if (preset === 'donutsmp-eu') {
-        if (botEditionSelect) botEditionSelect.value = 'java';
-        serverHostInput.value = 'EU.donutsmp.net';
-        serverPortInput.value = '25565';
-        authModeSelect.value = 'microsoft';
-        mcVersionSelect.value = 'auto';
-        autoCommandInput.value = '/smp';
-        autoCommandDelayInput.value = '7';
-      } else if (preset === 'aternos') {
-        if (botEditionSelect) botEditionSelect.value = 'java';
-        serverHostInput.value = 'myserver.aternos.me';
-        serverPortInput.value = '25565';
-        authModeSelect.value = 'offline';
-        mcVersionSelect.value = 'auto';
-        autoCommandInput.value = '';
-        autoCommandDelayInput.value = '7';
-      }
+      setServerLocation(btn.dataset.host || 'donutsmp.net');
     });
   });
 
@@ -821,23 +826,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (config.host) {
-      targetServerSpan.textContent = `${config.host}:${config.port}`;
+      const isEu = config.host.toLowerCase().includes('eu');
+      targetServerSpan.textContent = isEu ? 'DonutSMP الأوروبي (EU)' : 'DonutSMP الرئيسي (US)';
+      setServerLocation(config.host);
     } else {
-      targetServerSpan.textContent = 'لم يحدد بعد';
+      targetServerSpan.textContent = 'DonutSMP الرئيسي (US)';
     }
 
     if (activeEditionSpan) {
-      if (config.edition === 'bedrock') {
-        activeEditionSpan.textContent = 'بيدروك (Bedrock 19132) 🟢';
-        activeEditionSpan.style.color = '#4ade80';
-      } else {
-        activeEditionSpan.textContent = 'جافا (Java 25565) ☕';
-        activeEditionSpan.style.color = '#60a5fa';
-      }
+      activeEditionSpan.textContent = 'بيدروك (Bedrock 19132) 🟢';
+      activeEditionSpan.style.color = '#4ade80';
     }
 
     activeUsernameSpan.textContent = config.username || '--';
-    activeAuthSpan.textContent = config.auth === 'microsoft' ? 'Microsoft رسمي' : 'Cracked مكرك';
+    activeAuthSpan.textContent = 'حساب إكسبوكس مجاني';
 
     if (position) {
       lastLivePosition = position;

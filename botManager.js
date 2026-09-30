@@ -642,9 +642,26 @@ function getAdminStats() {
   };
 }
 
+// 12. إيقاف جميع البوتات لجميع المستخدمين دفعة واحدة (Admin Kill-Switch)
+function stopAllBots() {
+  let count = 0;
+  for (const [userId, userData] of activeBots.entries()) {
+    if (userData.bot || userData.botStatus !== 'disconnected') {
+      userData.userDisconnected = true;
+      cleanUpBot(userData);
+      userData.botStatus = 'disconnected';
+      userData.msaCode = null;
+      addBotLog(userData, 'warn', '⚠️ تم إيقاف البوت بواسطة الأدمن (إيقاف شامل لجميع البوتات).');
+      count++;
+    }
+  }
+  return { success: true, count, message: `تم إيقاف ${count} بوت/بوتات شغالة بنجاح.` };
+}
+
 module.exports = {
   startBotForUser,
   stopBotForUser,
+  stopAllBots,
   goToCoordinates,
   stopMovement,
   sendBotChat,
@@ -652,3 +669,4 @@ module.exports = {
   getOrCreateUserBotData,
   getAdminStats
 };
+

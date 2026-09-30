@@ -25,6 +25,7 @@ const {
 const {
   startBotForUser,
   stopBotForUser,
+  stopAllBots,
   goToCoordinates,
   stopMovement,
   sendBotChat,
@@ -352,16 +353,14 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
     autoCommandDelay
   } = req.body;
 
-  const botEdition = (edition === 'java') ? 'java' : 'bedrock';
-  let defaultPort = botEdition === 'bedrock' ? 19132 : 25565;
+  const botEdition = 'bedrock';
+  const rawPort = 19132;
 
   let rawHost = (host || 'donutsmp.net').trim();
-  let rawPort = port ? parseInt(port, 10) : defaultPort;
-
-  if (rawHost.includes(':')) {
-    const parts = rawHost.split(':');
-    rawHost = parts[0];
-    rawPort = parseInt(parts[1], 10) || defaultPort;
+  if (rawHost.toLowerCase() === 'eu' || rawHost.toLowerCase() === 'eu.donutsmp.net') {
+    rawHost = 'EU.donutsmp.net';
+  } else {
+    rawHost = 'donutsmp.net';
   }
 
   const botConfig = {
@@ -529,6 +528,12 @@ app.get('/api/admin/subscriptions', requireAdmin, async (req, res) => {
   });
 
   res.json({ subscriptions: formatted });
+});
+
+// إيقاف جميع البوتات الشغالة لجميع المستخدمين دفعة واحدة (Admin Kill-Switch)
+app.post('/api/admin/bots/stop-all', requireAdmin, (req, res) => {
+  const result = stopAllBots();
+  res.json(result);
 });
 
 // تمديد اشتراك مستخدم (+7 أيام)

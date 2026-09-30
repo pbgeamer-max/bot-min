@@ -5,7 +5,8 @@ const {
   REST,
   Routes,
   EmbedBuilder,
-  ActivityType
+  ActivityType,
+  Events
 } = require('discord.js');
 
 const {
@@ -79,7 +80,7 @@ async function initDiscordBot() {
     intents: [GatewayIntentBits.Guilds]
   });
 
-  client.once('ready', async () => {
+  client.once(Events.ClientReady, async () => {
     isDiscordReady = true;
     console.log(`[Discord Bot] تم تسجيل الدخول بنجاح باسم البوت: ${client.user.tag}!`);
 

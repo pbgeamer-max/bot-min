@@ -416,7 +416,7 @@ app.post('/api/bot/connect', requireAuth, requireActiveSub, async (req, res) => 
     },
     autoWalkToPos: !!autoWalkToPos,
     lockPosition: !!lockPosition,
-    autoCommand: autoCommand ? autoCommand.trim() : '/smp',
+    autoCommand: autoCommand ? autoCommand.trim() : '',
     autoCommandDelay: parseInt(autoCommandDelay || '7', 10)
   };
 

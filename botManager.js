@@ -96,7 +96,7 @@ function getOrCreateUserBotData(userId) {
         targetPos: { x: null, y: null, z: null },
         autoWalkToPos: false,
         lockPosition: false,
-        autoCommand: '/smp',
+        autoCommand: '',
         autoCommandDelay: 7
       }
     });

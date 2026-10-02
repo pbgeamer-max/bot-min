@@ -1262,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const password = (authPasswordInput && authPasswordInput.value) ? authPasswordInput.value.trim() : null;
     const version = (mcVersionSelect && mcVersionSelect.value) ? mcVersionSelect.value : 'auto';
     const auth = (authModeSelect && authModeSelect.value) ? authModeSelect.value : 'microsoft';
-    const autoCommand = (autoCommandInput && autoCommandInput.value) ? autoCommandInput.value.trim() : '/smp';
+    const autoCommand = (autoCommandInput && autoCommandInput.value) ? autoCommandInput.value.trim() : '';
     const autoCommandDelay = (autoCommandDelayInput && autoCommandDelayInput.value) ? autoCommandDelayInput.value.trim() : '7';
 
     const targetX = targetXInput && targetXInput.value !== '' ? targetXInput.value : null;

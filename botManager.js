@@ -619,12 +619,18 @@ function setupBedrockBotEvents(userData, client) {
         // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
         const lowerMsg = packet.message.toLowerCase();
         if (lowerMsg.includes('/tpaccept') || lowerMsg.includes('requested that you teleport') || lowerMsg.includes('requested to teleport')) {
+          // تجميد حركات الـ Anti-AFK مؤقتاً لمدة 8 ثوانٍ حتى يكتمل الانتقال ولا يلغيه السيرفر بسبب الحركة
+          userData.isTeleporting = true;
+          setTimeout(() => {
+            userData.isTeleporting = false;
+          }, 8000);
+
           setTimeout(() => {
             if (userData.bot && userData.botStatus === 'connected') {
               sendBedrockCommandOrChat(client, '/tpaccept');
               addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)!');
             }
-          }, 1200);
+          }, 800);
         }
       }
     } catch (e) {}
@@ -713,7 +719,7 @@ function startBedrockAntiAfk(userData, client) {
   // 2. حركة تفاعلية دورية كل 5 ثوانٍ لإثبات أن البوت متفاعل وحي داخل السيرفر
   let sneakState = false;
   userData.afkInterval = setInterval(() => {
-    if (!userData.bot || userData.botStatus !== 'connected') return;
+    if (!userData.bot || userData.botStatus !== 'connected' || userData.isTeleporting) return;
     try {
       sneakState = !sneakState;
       client.queue('player_action', {

@@ -698,57 +698,61 @@ function setupBedrockBotEvents(userData, client) {
     try {
       const msgStr = packet.message || '';
       const paramsStr = Array.isArray(packet.parameters) ? packet.parameters.join(' ') : '';
-      const fullMsg = `${msgStr} ${paramsStr}`.trim();
-      if (!fullMsg) return;
+      const rawMsg = `${msgStr} ${paramsStr}`.trim();
+      if (!rawMsg) return;
 
-      addBotLog(userData, 'chat', fullMsg);
+      addBotLog(userData, 'chat', rawMsg);
+
+      // تنظيف الرسالة من أكواد ألوان وتنسيقات ماينكرافت (§r§f وغيرها)
+      const cleanMsg = rawMsg.replace(/§[0-9a-fk-or]/gi, '').trim();
+      const lowerCleanMsg = cleanMsg.toLowerCase();
 
       // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
-      const lowerMsg = fullMsg.toLowerCase();
       const isTpa = (
-        lowerMsg.includes('/tpaccept') ||
-        lowerMsg.includes('teleport here request') ||
-        lowerMsg.includes('sent you a teleport') ||
-        lowerMsg.includes('requested to teleport') ||
-        lowerMsg.includes('requested that you teleport') ||
-        lowerMsg.includes('type /tpaccept') ||
-        (lowerMsg.includes('tpa') && lowerMsg.includes('request'))
+        lowerCleanMsg.includes('/tpaccept') ||
+        lowerCleanMsg.includes('teleport here request') ||
+        lowerCleanMsg.includes('sent you a teleport') ||
+        lowerCleanMsg.includes('requested to teleport') ||
+        lowerCleanMsg.includes('requested that you teleport') ||
+        lowerCleanMsg.includes('type /tpaccept') ||
+        (lowerCleanMsg.includes('tpa') && lowerCleanMsg.includes('request'))
       );
 
       if (isTpa) {
         const now = Date.now();
-        if (now - lastTpaHandled < 5000) return; // منع التكرار لأي رسالة ثانية خلال 5 ثوانٍ
+        if (now - lastTpaHandled < 5000) return; // منع التكرار لأي رسالة ثانية خلال 5 ثوانٍ لنفس الطلب
         lastTpaHandled = now;
 
-        // استخراج اسم المرسل إن وجد (مثل L0rdBenn)
+        // استخراج اسم المرسل إن وجد (مثل L0rdBenn) بشكل نظيف تماماً دون أكواد ألوان
         let targetPlayer = '';
-        const senderMatch = fullMsg.match(/([a-zA-Z0-9_\.]+)\s+(?:sent you|has requested)/i);
+        const senderMatch = cleanMsg.match(/([a-zA-Z0-9_\.]+)\s+(?:sent you|has requested)/i);
         if (senderMatch && senderMatch[1]) {
           targetPlayer = senderMatch[1].trim();
         }
 
-        // تجميد حركات الـ Anti-AFK فوراً لمدة 10 ثوانٍ حتى يكتمل عداد السيرفر ولا يلغيه بسبب الحركة
+        // تجميد حركات الـ Anti-AFK وإيقاف الانحناء فوراً لمدة 15 ثانية حتى يكتمل عداد السيرفر ولا يلغيه بسبب الحركة
         userData.isTeleporting = true;
+        try {
+          client.queue('player_action', {
+            runtime_entity_id: client.entityId || 0,
+            action: 'stop_sneak',
+            position: { x: 0, y: 0, z: 0 },
+            result_position: { x: 0, y: 0, z: 0 },
+            face: 0
+          });
+        } catch (e) {}
+
         setTimeout(() => {
           userData.isTeleporting = false;
-        }, 10000);
+        }, 15000);
 
-        // إرسال أمر /tpaccept واحد نظيف بعد 600ms لتفادي فلتر الـ 0.25s rate limit
+        // إرسال أمر /tpaccept واحد نظيف بعد 800ms لتفادي فلتر الـ 0.25s rate limit
         setTimeout(() => {
           if (userData.bot && userData.botStatus === 'connected') {
             sendBedrockCommandOrChat(client, '/tpaccept');
-            addBotLog(userData, 'success', `⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)${targetPlayer ? ' من ' + targetPlayer : ''}!`);
-
-            // إذا كان اسم اللاعب متوفراً، نرسل أمراً مخصصاً باسمه بعد 600ms أخرى (> 0.25s) لضمان القبول
-            if (targetPlayer && targetPlayer.toLowerCase() !== 'you') {
-              setTimeout(() => {
-                if (userData.bot && userData.botStatus === 'connected') {
-                  sendBedrockCommandOrChat(client, `/tpaccept ${targetPlayer}`);
-                }
-              }, 600);
-            }
+            addBotLog(userData, 'success', `⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)${targetPlayer ? ' من ' + targetPlayer : ''}! يرجى الانتظار 3 ثوانٍ ليكتمل الانتقال.`);
           }
-        }, 600);
+        }, 800);
       }
     } catch (e) {}
   });
@@ -938,6 +942,27 @@ function sendBotChat(userId, message) {
   }
 
   const cleanMsg = message.trim();
+  const lowerMsg = cleanMsg.toLowerCase();
+
+  // تجميد حركات الـ Anti-AFK عند تنفيذ أي أمر انتقال يدوي لضمان اكتمال مهلة الانتقال (3-5 ثوانٍ)
+  if (lowerMsg.startsWith('/tp') || lowerMsg.startsWith('/home') || lowerMsg.startsWith('/spawn') || lowerMsg.startsWith('/rtp')) {
+    userData.isTeleporting = true;
+    try {
+      if (bot && userData.config.edition === 'bedrock') {
+        bot.queue('player_action', {
+          runtime_entity_id: bot.entityId || 0,
+          action: 'stop_sneak',
+          position: { x: 0, y: 0, z: 0 },
+          result_position: { x: 0, y: 0, z: 0 },
+          face: 0
+        });
+      }
+    } catch (e) {}
+    setTimeout(() => {
+      userData.isTeleporting = false;
+    }, 15000);
+  }
+
   if (userData.config.edition === 'bedrock') {
     const ok = sendBedrockCommandOrChat(bot, cleanMsg);
     if (ok) {

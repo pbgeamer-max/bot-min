@@ -693,6 +693,7 @@ function setupBedrockBotEvents(userData, client) {
     } catch (e) {}
   });
 
+  let lastTpaHandled = 0;
   client.on('text', (packet) => {
     try {
       const msgStr = packet.message || '';
@@ -704,7 +705,7 @@ function setupBedrockBotEvents(userData, client) {
 
       // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
       const lowerMsg = fullMsg.toLowerCase();
-      if (
+      const isTpa = (
         lowerMsg.includes('/tpaccept') ||
         lowerMsg.includes('teleport here request') ||
         lowerMsg.includes('sent you a teleport') ||
@@ -712,20 +713,42 @@ function setupBedrockBotEvents(userData, client) {
         lowerMsg.includes('requested that you teleport') ||
         lowerMsg.includes('type /tpaccept') ||
         (lowerMsg.includes('tpa') && lowerMsg.includes('request'))
-      ) {
-        // تجميد حركات الـ Anti-AFK فوراً لمدة 12 ثانية حتى يكتمل الانتقال ولا يلغيه السيرفر بسبب الحركة
+      );
+
+      if (isTpa) {
+        const now = Date.now();
+        if (now - lastTpaHandled < 5000) return; // منع التكرار لأي رسالة ثانية خلال 5 ثوانٍ
+        lastTpaHandled = now;
+
+        // استخراج اسم المرسل إن وجد (مثل L0rdBenn)
+        let targetPlayer = '';
+        const senderMatch = fullMsg.match(/([a-zA-Z0-9_\.]+)\s+(?:sent you|has requested)/i);
+        if (senderMatch && senderMatch[1]) {
+          targetPlayer = senderMatch[1].trim();
+        }
+
+        // تجميد حركات الـ Anti-AFK فوراً لمدة 10 ثوانٍ حتى يكتمل عداد السيرفر ولا يلغيه بسبب الحركة
         userData.isTeleporting = true;
         setTimeout(() => {
           userData.isTeleporting = false;
-        }, 12000);
+        }, 10000);
 
+        // إرسال أمر /tpaccept واحد نظيف بعد 600ms لتفادي فلتر الـ 0.25s rate limit
         setTimeout(() => {
           if (userData.bot && userData.botStatus === 'connected') {
             sendBedrockCommandOrChat(client, '/tpaccept');
-            sendBedrockCommandOrChat(client, '/tpyes');
-            addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept و /tpyes)!');
+            addBotLog(userData, 'success', `⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)${targetPlayer ? ' من ' + targetPlayer : ''}!`);
+
+            // إذا كان اسم اللاعب متوفراً، نرسل أمراً مخصصاً باسمه بعد 600ms أخرى (> 0.25s) لضمان القبول
+            if (targetPlayer && targetPlayer.toLowerCase() !== 'you') {
+              setTimeout(() => {
+                if (userData.bot && userData.botStatus === 'connected') {
+                  sendBedrockCommandOrChat(client, `/tpaccept ${targetPlayer}`);
+                }
+              }, 600);
+            }
           }
-        }, 300);
+        }, 600);
       }
     } catch (e) {}
   });

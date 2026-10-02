@@ -562,7 +562,14 @@ function setupBedrockBotEvents(userData, client) {
     userData.connectedSince = new Date();
     userData.hasLoggedIn = true;
     userData.msaCode = null;
+
+    const rawGamertag = client.username || (client.profile && client.profile.name) || 'Tokyo k7il9l';
+    const javaName = `.${rawGamertag.replace(/\s+/g, '_')}`;
+    userData.inGameName = javaName;
+
     addBotLog(userData, 'success', `🟢 تم الاتصال ودخول سيرفر DonutSMP (Bedrock Edition) بنجاح بحساب إكسبوكس!`);
+    addBotLog(userData, 'bot', `🎮 اسم البوت الفعلي داخل السيرفر: [ ${javaName} ]`);
+    addBotLog(userData, 'bot', `💡 لإرسال طلب انتقال للبوت من ماينكرافت الجافا، اكتب: /tpahere ${javaName}`);
 
     // حفظ كاش التوثيق سحابياً في فايربيس لكي لا يطلب تسجيل الدخول مرة ثانية أبداً
     const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${userData.userId}`);
@@ -570,7 +577,7 @@ function setupBedrockBotEvents(userData, client) {
       backupAuthCache(userData.userId, 'bedrock', bedrockAuthFolder);
     }, 2000);
 
-    // تنفيذ الأمر التلقائي (مثل /smp)
+    // تنفيذ الأمر التلقائي إن وُجد
     const conf = userData.config;
     if (conf.autoCommand && conf.autoCommand.trim()) {
       const delayMs = (conf.autoCommandDelay || 7) * 1000;
@@ -586,10 +593,39 @@ function setupBedrockBotEvents(userData, client) {
     startBedrockAntiAfk(userData, client);
   });
 
+  client.on('start_game', (packet) => {
+    try {
+      if (packet && packet.player_position) {
+        client.currentPosition = packet.player_position;
+        client.currentRotation = packet.rotation || { pitch: 0, yaw: 0 };
+      }
+    } catch (e) {}
+  });
+
+  client.on('move_player', (packet) => {
+    try {
+      if (packet && (packet.runtime_entity_id === client.entityId || !client.currentPosition)) {
+        client.currentPosition = packet.position;
+        client.currentRotation = { pitch: packet.pitch, yaw: packet.yaw };
+      }
+    } catch (e) {}
+  });
+
   client.on('text', (packet) => {
     try {
       if (packet.message) {
         addBotLog(userData, 'chat', packet.message);
+
+        // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
+        const lowerMsg = packet.message.toLowerCase();
+        if (lowerMsg.includes('/tpaccept') || lowerMsg.includes('requested that you teleport') || lowerMsg.includes('requested to teleport')) {
+          setTimeout(() => {
+            if (userData.bot && userData.botStatus === 'connected') {
+              sendBedrockCommandOrChat(client, '/tpaccept');
+              addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)!');
+            }
+          }, 1200);
+        }
       }
     } catch (e) {}
   });
@@ -689,6 +725,31 @@ function startBedrockAntiAfk(userData, client) {
       });
     } catch (e) {}
   }, 5000);
+
+  // 3. التفاتة تفاعلية للرأس كل 10 ثوانٍ لمنع الطرد بعد فترات الـ AFK الطويلة
+  let yawOffset = 0;
+  userData.lookInterval = setInterval(() => {
+    if (!userData.bot || userData.botStatus !== 'connected' || !client.currentPosition) return;
+    try {
+      yawOffset = (yawOffset === 0) ? 10 : 0;
+      const basePitch = (client.currentRotation && client.currentRotation.pitch) || 0;
+      const baseYaw = (client.currentRotation && client.currentRotation.yaw) || 0;
+      const newYaw = baseYaw + yawOffset;
+      client.queue('move_player', {
+        runtime_entity_id: client.entityId || 1n,
+        position: client.currentPosition,
+        pitch: basePitch,
+        yaw: newYaw,
+        head_yaw: newYaw,
+        mode: 'head_rotation',
+        on_ground: true,
+        ridden_runtime_entity_id: 0n,
+        teleport_cause: 'unknown',
+        teleport_source_entity_type: 0,
+        tick: client.tick || 0n
+      });
+    } catch (e) {}
+  }, 10000);
 }
 
 // 6. تنظيف وفصل البوت
@@ -697,6 +758,10 @@ function cleanUpBot(userData) {
   if (userData.heartbeatInterval) {
     clearInterval(userData.heartbeatInterval);
     userData.heartbeatInterval = null;
+  }
+  if (userData.lookInterval) {
+    clearInterval(userData.lookInterval);
+    userData.lookInterval = null;
   }
   userData.hasLoggedIn = false;
   if (userData.bot) {

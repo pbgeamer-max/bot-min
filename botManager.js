@@ -515,13 +515,16 @@ function sendBedrockCommandOrChat(client, message) {
   try {
     if (clean.startsWith('/')) {
       try {
+        const playerUuid = (client.profile && client.profile.uuid) ? client.profile.uuid : crypto.randomUUID();
+        const playerEntId = client.entityId != null ? BigInt(client.entityId) : 0n;
+
         client.queue('command_request', {
           command: clean,
           origin: {
             type: 'player',
-            uuid: crypto.randomUUID(),
+            uuid: playerUuid,
             request_id: '',
-            player_entity_id: 0n
+            player_entity_id: playerEntId
           },
           internal: false,
           version: 'latest'
@@ -595,9 +598,14 @@ function setupBedrockBotEvents(userData, client) {
 
   client.on('start_game', (packet) => {
     try {
-      if (packet && packet.player_position) {
-        client.currentPosition = packet.player_position;
-        client.currentRotation = packet.rotation || { pitch: 0, yaw: 0 };
+      if (packet) {
+        if (packet.runtime_entity_id != null) {
+          client.entityId = packet.runtime_entity_id;
+        }
+        if (packet.player_position) {
+          client.currentPosition = packet.player_position;
+          client.currentRotation = packet.rotation || { pitch: 0, yaw: 0 };
+        }
       }
     } catch (e) {}
   });

@@ -695,24 +695,48 @@ function setupBedrockBotEvents(userData, client) {
 
   client.on('text', (packet) => {
     try {
-      if (packet.message) {
-        addBotLog(userData, 'chat', packet.message);
+      const msgStr = packet.message || '';
+      const paramsStr = Array.isArray(packet.parameters) ? packet.parameters.join(' ') : '';
+      const fullMsg = `${msgStr} ${paramsStr}`.trim();
+      if (!fullMsg) return;
 
-        // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
-        const lowerMsg = packet.message.toLowerCase();
-        if (lowerMsg.includes('/tpaccept') || lowerMsg.includes('requested that you teleport') || lowerMsg.includes('requested to teleport') || lowerMsg.includes('teleport here request')) {
-          // تجميد حركات الـ Anti-AFK مؤقتاً لمدة 8 ثوانٍ حتى يكتمل الانتقال ولا يلغيه السيرفر بسبب الحركة
-          userData.isTeleporting = true;
-          setTimeout(() => {
-            userData.isTeleporting = false;
-          }, 8000);
+      addBotLog(userData, 'chat', fullMsg);
 
-          setTimeout(() => {
-            if (userData.bot && userData.botStatus === 'connected') {
-              sendBedrockCommandOrChat(client, '/tpaccept');
-              addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)!');
-            }
-          }, 400);
+      // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
+      const lowerMsg = fullMsg.toLowerCase();
+      if (
+        lowerMsg.includes('/tpaccept') ||
+        lowerMsg.includes('teleport here request') ||
+        lowerMsg.includes('sent you a teleport') ||
+        lowerMsg.includes('requested to teleport') ||
+        lowerMsg.includes('requested that you teleport') ||
+        lowerMsg.includes('type /tpaccept') ||
+        (lowerMsg.includes('tpa') && lowerMsg.includes('request'))
+      ) {
+        // تجميد حركات الـ Anti-AFK فوراً لمدة 12 ثانية حتى يكتمل الانتقال ولا يلغيه السيرفر بسبب الحركة
+        userData.isTeleporting = true;
+        setTimeout(() => {
+          userData.isTeleporting = false;
+        }, 12000);
+
+        setTimeout(() => {
+          if (userData.bot && userData.botStatus === 'connected') {
+            sendBedrockCommandOrChat(client, '/tpaccept');
+            sendBedrockCommandOrChat(client, '/tpyes');
+            addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept و /tpyes)!');
+          }
+        }, 300);
+      }
+    } catch (e) {}
+  });
+
+  // تسجيل واستعراض نتائج الأوامر التي ينفذها البوت من السيرفر
+  client.on('command_output', (packet) => {
+    try {
+      if (packet && packet.output) {
+        for (const out of packet.output) {
+          const txt = out.message || (out.parameters && out.parameters.join(' ')) || JSON.stringify(out);
+          addBotLog(userData, 'system', `[رد السيرفر للأمر]: ${txt}`);
         }
       }
     } catch (e) {}

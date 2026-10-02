@@ -170,13 +170,14 @@ async function startBotForUser(userId, newConfig = {}) {
     await restoreAuthCache(userData.userId, 'bedrock', bedrockAuthFolder);
 
     try {
-      const client = bedrock.createClient({
-        host: host,
-        port: port,
-        username: userData.config.username,
-        offline: false, // Xbox Live Auth
-        profilesFolder: bedrockAuthFolder,
-        onMsaCode: (data) => {
+      // إعداد نظام Authflow موحد بنفس المعرف لكل مستخدم
+      let authflow = null;
+      if (Authflow && Titles) {
+        authflow = new Authflow(userData.userId, bedrockAuthFolder, {
+          authTitle: Titles.MinecraftNintendoSwitch,
+          deviceType: 'Nintendo',
+          flow: 'live'
+        }, (data) => {
           const code = data.user_code || data.userCode;
           const directLink = `https://microsoft.com/link?otc=${code}`;
           userData.msaCode = {
@@ -188,8 +189,60 @@ async function startBotForUser(userId, newConfig = {}) {
           addBotLog(userData, 'auth', `🔐 [حساب إكسبوكس] مطلوب تأكيد الدخول لمرة واحدة فقط:`);
           addBotLog(userData, 'auth', `🔗 اضغط هنا لتأكيد حساب إكسبوكس مباشرة بنقرة واحدة: ${directLink}`);
           addBotLog(userData, 'auth', `✨ يتم إدخال الكود تلقائياً بمجرد فتح الرابط، فقط اضغط على "متابعة" في مايكروسوفت.`);
-        }
-      });
+        });
+
+        // حفظ كاش التوثيق فور استلام توكن Xbox بنجاح في الخلفية
+        authflow.getXboxToken().then(async (xsts) => {
+          if (xsts && xsts.DisplayClaims && xsts.DisplayClaims.xui && xsts.DisplayClaims.xui[0]) {
+            const gtg = xsts.DisplayClaims.xui[0].gtg;
+            addBotLog(userData, 'auth', `✅ تم تأكيد حساب Xbox بنجاح باسم: ${gtg}`);
+          }
+          await backupAuthCache(userData.userId, 'bedrock', bedrockAuthFolder);
+        }).catch((e) => {
+          console.warn(`[Xbox Authflow] xsts catch for ${userData.userId}:`, e.message);
+        });
+
+        // توفير Fallback لحسابات إكسبوكس المجانية: إذا تعذر جلب multiplayerToken المخصص لـ Realms/Franchise
+        // بسبب عدم شراء اللعبة أو انقطاع الاتصال (terminated)، نعتمد على Chain الأساسية التي يحتاجها سيرفر DonutSMP
+        const originalGetMinecraftBedrockToken = authflow.getMinecraftBedrockToken.bind(authflow);
+        authflow.getMinecraftBedrockToken = async function (publicKey, options = {}) {
+          try {
+            return await originalGetMinecraftBedrockToken(publicKey, options);
+          } catch (tokenErr) {
+            console.warn(`[Xbox Auth] تعذر جلب multiplayerToken (${tokenErr.message}). جاري تجربة Chain الأساسية لسيرفر DonutSMP...`);
+            const chain = await authflow.getMinecraftBedrockChain(publicKey);
+            return { chain, token: '' };
+          }
+        };
+      }
+
+      const clientOptions = {
+        host: host,
+        port: port,
+        username: userData.userId,
+        offline: false, // Xbox Live Auth
+        profilesFolder: bedrockAuthFolder
+      };
+
+      if (authflow) {
+        clientOptions.authflow = authflow;
+      } else {
+        clientOptions.onMsaCode = (data) => {
+          const code = data.user_code || data.userCode;
+          const directLink = `https://microsoft.com/link?otc=${code}`;
+          userData.msaCode = {
+            code,
+            url: directLink,
+            link: directLink,
+            expiresAt: Date.now() + ((data.expires_in || 900) * 1000)
+          };
+          addBotLog(userData, 'auth', `🔐 [حساب إكسبوكس] مطلوب تأكيد الدخول لمرة واحدة فقط:`);
+          addBotLog(userData, 'auth', `🔗 اضغط هنا لتأكيد حساب إكسبوكس مباشرة بنقرة واحدة: ${directLink}`);
+          addBotLog(userData, 'auth', `✨ يتم إدخال الكود تلقائياً بمجرد فتح الرابط، فقط اضغط على "متابعة" في مايكروسوفت.`);
+        };
+      }
+
+      const client = bedrock.createClient(clientOptions);
 
       userData.bot = client;
       setupBedrockBotEvents(userData, client);
@@ -529,10 +582,27 @@ function setupBedrockBotEvents(userData, client) {
     userData.botStatus = 'disconnected';
     userData.msaCode = null;
     const errStr = (err && (err.message || err.toString())) || 'خطأ غير معروف';
-    addBotLog(userData, 'error', `خطأ في اتصال البيدروك: ${errStr}`);
-    if (errStr.includes('terminated')) {
-      addBotLog(userData, 'warn', 'انتهت مدة كود المصادقة لعدم إدخاله في موقع مايكروسوفت. يرجى الضغط على Connect وإدخال الكود الجديد في صفحة مايكروسوفت.');
+    const errCause = err && err.cause ? ` (${err.cause.message || err.cause})` : '';
+    console.error(`[Bedrock Bot Error] [${userData.userId}]:`, err);
+    addBotLog(userData, 'error', `خطأ في اتصال البيدروك: ${errStr}${errCause}`);
+
+    if (errStr.includes('Xbox Live error') || errStr.includes('2148916233') || errStr.includes('2148916234')) {
+      addBotLog(userData, 'warn', '⚠️ حساب مايكروسوفت هذا جديد أو لم يتم تعيين اسم لاعب (Gamertag) له في إكسبوكس بعد. يرجى الدخول إلى موقع xbox.com مرة واحدة وتعيين اسم للاعب ثم إعادة المحاولة.');
+    } else if (errStr.includes('terminated')) {
+      addBotLog(userData, 'warn', '⚠️ تعذر إتمام مصادقة مايكروسوفت (انقطاع في الشبكة أو ضغط بالسيرفر). جاري تنظيف الجلسة وإعادة المحاولة...');
+      const bedrockAuthFolder = path.join(__dirname, 'auth-cache', `bedrock-${userData.userId}`);
+      try {
+        if (fs.existsSync(bedrockAuthFolder)) {
+          const files = fs.readdirSync(bedrockAuthFolder);
+          for (const f of files) {
+            if (f.includes('bed-cache.json') || f.includes('mcs-cache.json') || f.includes('pfb-cache.json')) {
+              try { fs.unlinkSync(path.join(bedrockAuthFolder, f)); } catch(e){}
+            }
+          }
+        }
+      } catch (e) {}
     }
+
     const shouldReconnect = userData.hasLoggedIn && !userData.userDisconnected;
     cleanUpBot(userData);
     if (shouldReconnect) {
@@ -763,7 +833,7 @@ async function startXboxAuthFlow(userId) {
     throw new Error('حزمة التوثيق prismarine-auth غير متوفرة في النظام');
   }
 
-  const flow = new Authflow('XboxPlayer', bedrockAuthFolder, {
+  const flow = new Authflow(cleanId, bedrockAuthFolder, {
     authTitle: Titles.MinecraftNintendoSwitch,
     deviceType: 'Nintendo',
     flow: 'live'
@@ -787,6 +857,7 @@ async function startXboxAuthFlow(userId) {
   }).catch((err) => {
     authData.status = 'error';
     authData.error = err.message || String(err);
+    console.error(`[Xbox Auth Flow Error] [${cleanId}]:`, err);
   });
 
   // انتظار توليد الرابط والكود من مايكروسوفت

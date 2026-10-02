@@ -3,6 +3,7 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { GoalNear } = goals;
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { saveAuthCache, loadAuthCache } = require('./firebase');
 
 let bedrock = null;
@@ -81,6 +82,7 @@ function getOrCreateUserBotData(userId) {
       isReconnecting: false,
       hasLoggedIn: false,
       afkInterval: null,
+      heartbeatInterval: null,
       msaCode: null,
       logs: [],
       config: {
@@ -506,6 +508,53 @@ function stopAntiAFK(userData) {
   }
 }
 
+// دالة إرسال الأوامر والرسائل في نسخة البيدروك
+function sendBedrockCommandOrChat(client, message) {
+  const clean = (message || '').trim();
+  if (!clean) return false;
+  try {
+    if (clean.startsWith('/')) {
+      try {
+        client.queue('command_request', {
+          command: clean,
+          origin: {
+            type: 'player',
+            uuid: crypto.randomUUID(),
+            request_id: '',
+            player_entity_id: 0n
+          },
+          internal: false,
+          version: 'latest'
+        });
+      } catch (cmdErr) {
+        client.queue('text', {
+          type: 'chat',
+          needs_translation: false,
+          source_name: client.username || 'Player',
+          xuid: '',
+          platform_chat_id: '',
+          filtered_message: '',
+          message: clean
+        });
+      }
+    } else {
+      client.queue('text', {
+        type: 'chat',
+        needs_translation: false,
+        source_name: client.username || 'Player',
+        xuid: '',
+        platform_chat_id: '',
+        filtered_message: '',
+        message: clean
+      });
+    }
+    return true;
+  } catch (err) {
+    console.error('[Bedrock Send Error]:', err.message);
+    return false;
+  }
+}
+
 // أحداث بوت البيدروك (Bedrock Edition Events)
 function setupBedrockBotEvents(userData, client) {
   client.on('join', () => {
@@ -528,18 +577,8 @@ function setupBedrockBotEvents(userData, client) {
       addBotLog(userData, 'system', `سيتم إرسال أمر الدخول (${conf.autoCommand}) بعد ${conf.autoCommandDelay || 7} ثوانٍ...`);
       setTimeout(() => {
         if (userData.bot && userData.botStatus === 'connected') {
-          try {
-            client.queue('text', {
-              type: 'chat',
-              needs_translation: false,
-              source_name: client.username || userData.config.username,
-              xuid: '',
-              platform_chat_id: '',
-              filtered_message: '',
-              message: conf.autoCommand.trim()
-            });
-            addBotLog(userData, 'chat', `[أمر تلقائي] تم إرسال: ${conf.autoCommand}`);
-          } catch (e) {}
+          sendBedrockCommandOrChat(client, conf.autoCommand.trim());
+          addBotLog(userData, 'chat', `[أمر تلقائي] تم إرسال: ${conf.autoCommand}`);
         }
       }, delayMs);
     }
@@ -613,34 +652,46 @@ function setupBedrockBotEvents(userData, client) {
 
 function startBedrockAntiAfk(userData, client) {
   if (userData.afkInterval) clearInterval(userData.afkInterval);
+  if (userData.heartbeatInterval) clearInterval(userData.heartbeatInterval);
+
+  client.tick = 0n;
+
+  // 1. نبضات الحفاظ على الاتصال (Keepalive & Tick Sync) كل 1.5 ثانية لمنع طرد Boar Timed out
+  userData.heartbeatInterval = setInterval(() => {
+    if (!userData.bot || userData.botStatus !== 'connected') return;
+    try {
+      client.tick = (client.tick || 0n) + 20n;
+      client.queue('tick_sync', {
+        request_time: client.tick,
+        response_time: 0n
+      });
+    } catch (e) {}
+  }, 1500);
+
+  // 2. حركة تفاعلية دورية كل 6 ثوانٍ لإثبات أن البوت متفاعل وحي داخل السيرفر
+  let sneakState = false;
   userData.afkInterval = setInterval(() => {
     if (!userData.bot || userData.botStatus !== 'connected') return;
     try {
+      sneakState = !sneakState;
       client.queue('player_action', {
         runtime_entity_id: client.entityId || 0,
-        action: 'start_sneak',
+        action: sneakState ? 'start_sneak' : 'stop_sneak',
         position: { x: 0, y: 0, z: 0 },
         result_position: { x: 0, y: 0, z: 0 },
         face: 0
       });
-      setTimeout(() => {
-        if (userData.bot && userData.botStatus === 'connected') {
-          client.queue('player_action', {
-            runtime_entity_id: client.entityId || 0,
-            action: 'stop_sneak',
-            position: { x: 0, y: 0, z: 0 },
-            result_position: { x: 0, y: 0, z: 0 },
-            face: 0
-          });
-        }
-      }, 500);
     } catch (e) {}
-  }, 25000);
+  }, 6000);
 }
 
 // 6. تنظيف وفصل البوت
 function cleanUpBot(userData) {
   stopAntiAFK(userData);
+  if (userData.heartbeatInterval) {
+    clearInterval(userData.heartbeatInterval);
+    userData.heartbeatInterval = null;
+  }
   userData.hasLoggedIn = false;
   if (userData.bot) {
     try {
@@ -711,19 +762,11 @@ function sendBotChat(userId, message) {
 
   const cleanMsg = message.trim();
   if (userData.config.edition === 'bedrock') {
-    try {
-      bot.queue('text', {
-        type: 'chat',
-        needs_translation: false,
-        source_name: bot.username || userData.config.username,
-        xuid: '',
-        platform_chat_id: '',
-        filtered_message: '',
-        message: cleanMsg
-      });
+    const ok = sendBedrockCommandOrChat(bot, cleanMsg);
+    if (ok) {
       addBotLog(userData, 'chat', `[أنت]: ${cleanMsg}`);
       return { success: true, message: 'تم إرسال الأمر لسيرفر البيدروك بنجاح' };
-    } catch (e) {
+    } else {
       return { success: false, message: 'فشل إرسال الأمر في البيدروك' };
     }
   } else {

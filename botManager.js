@@ -604,10 +604,69 @@ function setupBedrockBotEvents(userData, client) {
 
   client.on('move_player', (packet) => {
     try {
-      if (packet && (packet.runtime_entity_id === client.entityId || !client.currentPosition)) {
-        client.currentPosition = packet.position;
-        client.currentRotation = { pitch: packet.pitch, yaw: packet.yaw };
+      const isTarget = !packet.runtime_entity_id || packet.runtime_entity_id === client.entityId || packet.runtime_id === client.entityId || !client.currentPosition;
+      if (packet && isTarget) {
+        if (packet.position) {
+          client.currentPosition = packet.position;
+        }
+        if (packet.pitch != null && packet.yaw != null) {
+          client.currentRotation = { pitch: packet.pitch, yaw: packet.yaw };
+        }
+
+        // إذا كان السيرفر ينقل البوت (Teleport): نرسل تأكيد handled_teleport فوراً لنظام الحماية Boar
+        if (packet.mode === 'teleport' || packet.mode === 2) {
+          const blockPos = packet.position ? {
+            x: Math.floor(packet.position.x),
+            y: Math.floor(packet.position.y),
+            z: Math.floor(packet.position.z)
+          } : { x: 0, y: 0, z: 0 };
+
+          client.queue('player_action', {
+            runtime_entity_id: client.entityId || 0,
+            action: 'handled_teleport',
+            position: blockPos,
+            result_position: blockPos,
+            face: 0
+          });
+          addBotLog(userData, 'success', `📍 اكتمل انتقال البوت بنجاح وتم تأكيد الموقع للسيرفر!`);
+        }
       }
+    } catch (e) {}
+  });
+
+  // الرد على نوافذ واستبيانات السيرفر التفاعلية (Modal Forms) لمنع طرد Boar Timed out
+  client.on('modal_form_request', (packet) => {
+    try {
+      let parsed = {};
+      try { parsed = JSON.parse(packet.data || '{}'); } catch(e){}
+
+      let respData = 'true';
+      if (parsed.type === 'form') respData = '0';
+      else if (parsed.type === 'custom_form') respData = '[]';
+
+      setTimeout(() => {
+        try {
+          client.queue('modal_form_response', {
+            form_id: packet.form_id,
+            has_response_data: true,
+            data: respData,
+            has_cancel_reason: false
+          });
+        } catch (e) {}
+      }, 250);
+    } catch (e) {}
+  });
+
+  // تأكيد تغيير الأبعاد (Overworld / Nether / End)
+  client.on('change_dimension', () => {
+    try {
+      client.queue('player_action', {
+        runtime_entity_id: client.entityId || 0,
+        action: 'dimension_change_ack',
+        position: { x: 0, y: 0, z: 0 },
+        result_position: { x: 0, y: 0, z: 0 },
+        face: 0
+      });
     } catch (e) {}
   });
 

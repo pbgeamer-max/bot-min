@@ -725,31 +725,6 @@ function startBedrockAntiAfk(userData, client) {
       });
     } catch (e) {}
   }, 5000);
-
-  // 3. التفاتة تفاعلية للرأس كل 10 ثوانٍ لمنع الطرد بعد فترات الـ AFK الطويلة
-  let yawOffset = 0;
-  userData.lookInterval = setInterval(() => {
-    if (!userData.bot || userData.botStatus !== 'connected' || !client.currentPosition) return;
-    try {
-      yawOffset = (yawOffset === 0) ? 10 : 0;
-      const basePitch = (client.currentRotation && client.currentRotation.pitch) || 0;
-      const baseYaw = (client.currentRotation && client.currentRotation.yaw) || 0;
-      const newYaw = baseYaw + yawOffset;
-      client.queue('move_player', {
-        runtime_entity_id: client.entityId || 1n,
-        position: client.currentPosition,
-        pitch: basePitch,
-        yaw: newYaw,
-        head_yaw: newYaw,
-        mode: 'head_rotation',
-        on_ground: true,
-        ridden_runtime_entity_id: 0n,
-        teleport_cause: 'unknown',
-        teleport_source_entity_type: 0,
-        tick: client.tick || 0n
-      });
-    } catch (e) {}
-  }, 10000);
 }
 
 // 6. تنظيف وفصل البوت
@@ -758,10 +733,6 @@ function cleanUpBot(userData) {
   if (userData.heartbeatInterval) {
     clearInterval(userData.heartbeatInterval);
     userData.heartbeatInterval = null;
-  }
-  if (userData.lookInterval) {
-    clearInterval(userData.lookInterval);
-    userData.lookInterval = null;
   }
   userData.hasLoggedIn = false;
   if (userData.bot) {

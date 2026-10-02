@@ -670,6 +670,29 @@ function setupBedrockBotEvents(userData, client) {
     } catch (e) {}
   });
 
+  // تأكيد نبضات زمن الاستجابة (Network Stack Latency & Transactions)
+  // حزمة bedrock-protocol ترسل التوقيت كما هو دون مضاعفته، بينما نظام Boar Anticheat في DonutSMP
+  // يقسم التوقيت على 1,000,000 (LATENCY_MAGNITUDE) لاستخراج Transaction ID.
+  // نقوم بإزالة المعالج القديم وتأكيد المعاملات بدقة لمنع طرد Boar Timed out نهائياً:
+  client.removeAllListeners('network_stack_latency');
+  client.on('network_stack_latency', (packet) => {
+    try {
+      if (packet && packet.needs_response !== false) {
+        const rawTs = typeof packet.timestamp === 'bigint' ? packet.timestamp : BigInt(packet.timestamp || 0);
+        // 1. إرسال التوقيت بوحدة نانو ثانية (× 1,000,000) لتأكيد معاملات Boar (TeleportAcceptAck, ChunkLoadAck, إلخ)
+        client.queue('network_stack_latency', {
+          timestamp: rawTs * 1000000n,
+          needs_response: false
+        });
+        // 2. إرسال التوقيت الأصلي كاحتياط لأي فحص قياسي في Geyser
+        client.queue('network_stack_latency', {
+          timestamp: rawTs,
+          needs_response: false
+        });
+      }
+    } catch (e) {}
+  });
+
   client.on('text', (packet) => {
     try {
       if (packet.message) {
@@ -677,7 +700,7 @@ function setupBedrockBotEvents(userData, client) {
 
         // قبول طلبات الانتقال TPA تلقائياً من اللاعبين أو صاحب البوت
         const lowerMsg = packet.message.toLowerCase();
-        if (lowerMsg.includes('/tpaccept') || lowerMsg.includes('requested that you teleport') || lowerMsg.includes('requested to teleport')) {
+        if (lowerMsg.includes('/tpaccept') || lowerMsg.includes('requested that you teleport') || lowerMsg.includes('requested to teleport') || lowerMsg.includes('teleport here request')) {
           // تجميد حركات الـ Anti-AFK مؤقتاً لمدة 8 ثوانٍ حتى يكتمل الانتقال ولا يلغيه السيرفر بسبب الحركة
           userData.isTeleporting = true;
           setTimeout(() => {
@@ -689,7 +712,7 @@ function setupBedrockBotEvents(userData, client) {
               sendBedrockCommandOrChat(client, '/tpaccept');
               addBotLog(userData, 'success', '⚡ تم استلام طلب انتقال وقبوله تلقائياً (/tpaccept)!');
             }
-          }, 800);
+          }, 400);
         }
       }
     } catch (e) {}

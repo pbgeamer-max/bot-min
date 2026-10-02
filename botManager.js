@@ -594,6 +594,12 @@ function setupBedrockBotEvents(userData, client) {
     } catch (e) {}
   });
 
+  client.on('tick_sync', (packet) => {
+    if (packet && packet.response_time != null) {
+      client.tick = packet.response_time;
+    }
+  });
+
   client.on('kick', (packet) => {
     const reason = packet.message || 'تم الطرد من السيرفر';
     userData.botStatus = 'disconnected';
@@ -654,21 +660,21 @@ function startBedrockAntiAfk(userData, client) {
   if (userData.afkInterval) clearInterval(userData.afkInterval);
   if (userData.heartbeatInterval) clearInterval(userData.heartbeatInterval);
 
-  client.tick = 0n;
+  if (client.tick == null) client.tick = 0n;
 
-  // 1. نبضات الحفاظ على الاتصال (Keepalive & Tick Sync) كل 1.5 ثانية لمنع طرد Boar Timed out
+  // 1. نبضات الحفاظ على الاتصال (Keepalive & Tick Sync) كل 500ms تماماً كمواصفات ماينكرافت الرسمية
   userData.heartbeatInterval = setInterval(() => {
     if (!userData.bot || userData.botStatus !== 'connected') return;
     try {
-      client.tick = (client.tick || 0n) + 20n;
       client.queue('tick_sync', {
         request_time: client.tick,
         response_time: 0n
       });
+      client.tick = (client.tick || 0n) + 10n;
     } catch (e) {}
-  }, 1500);
+  }, 500);
 
-  // 2. حركة تفاعلية دورية كل 6 ثوانٍ لإثبات أن البوت متفاعل وحي داخل السيرفر
+  // 2. حركة تفاعلية دورية كل 5 ثوانٍ لإثبات أن البوت متفاعل وحي داخل السيرفر
   let sneakState = false;
   userData.afkInterval = setInterval(() => {
     if (!userData.bot || userData.botStatus !== 'connected') return;
@@ -682,7 +688,7 @@ function startBedrockAntiAfk(userData, client) {
         face: 0
       });
     } catch (e) {}
-  }, 6000);
+  }, 5000);
 }
 
 // 6. تنظيف وفصل البوت
